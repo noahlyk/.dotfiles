@@ -21,3 +21,45 @@ gh/hosts.yml
 pavucontrol.ini
 pupgui/config.ini
 zsh/.zcompdump
+
+# GIMP runtime state (regenerates on every launch)
+GIMP/
+
+# Snapchat web app profile (caches, service workers, DBs)
+Snapchat/
+
+# Sunshine streaming runtime config/logs/state
+sunshine/
+
+# Unity game engine logs
+unity3d/
+
+# yay AUR helper config
+yay/config.json
+
+# Chromium browser profile (only NativeMessagingHosts intentionally tracked)
+chromium/
+
+# cava audio visualizer (shaders, themes)
+cava/
+
+# Go compiler telemetry data
+go/
+
+# crosshair maker project files
+crosshair-maker/
+
+# gocrosshair config
+gocrosshair/
+
+# hammer app runtime data
+hammer/
+
+# MangoHud runtime crosshair config
+MangoHud/crosshair.conf
+
+# Moonlight streaming config
+Moonlight Game Streaming Project/
+
+# DankMaterialShell standalone plugin repo
+DankMaterialShell/plugins/desktopCommand/

@@ -1,5 +1,5 @@
 {
-  "currentThemeName": "blue",
+  "currentThemeName": "monochrome",
   "currentThemeCategory": "generic",
   "customThemeFile": "",
   "registryThemeVariants": {},
@@ -36,6 +36,12 @@
   "modalAnimationSpeed": 1,
   "modalCustomAnimationDuration": 150,
   "enableRippleEffects": true,
+  "blurEnabled": false,
+  "blurForegroundLayers": true,
+  "blurLayerOutlineOpacity": 0.12,
+  "blurBorderColor": "outline",
+  "blurBorderCustomColor": "#ffffff",
+  "blurBorderOpacity": 0.35,
   "wallpaperFillMode": "Fill",
   "blurredWallpaperLayer": false,
   "blurWallpaperOnOverview": false,
@@ -52,6 +58,9 @@
   "selectedGpuIndex": 0,
   "enabledGpuPciIds": [],
   "showSystemTray": true,
+  "systemTrayIconTintMode": "none",
+  "systemTrayIconTintSaturation": 50,
+  "systemTrayIconTintStrength": 135,
   "showClock": true,
   "showNotificationButton": true,
   "showBattery": true,
@@ -185,28 +194,27 @@
     }
   ],
   "centeringMode": "geometric",
-  "clockDateFormat": "",
-  "lockDateFormat": "",
+  "clockDateFormat": "ddd MMM d, yyyy",
+  "lockDateFormat": "dddd MMMM d, yyyy",
   "greeterRememberLastSession": true,
   "greeterRememberLastUser": true,
   "greeterEnableFprint": false,
   "greeterEnableU2f": false,
   "greeterWallpaperPath": "",
-  "greeterUse24HourClock": true,
-  "greeterShowSeconds": false,
-  "greeterPadHours12Hour": false,
-  "greeterLockDateFormat": "",
-  "greeterFontFamily": "",
-  "greeterWallpaperFillMode": "",
   "mediaSize": 1,
   "appLauncherViewMode": "grid",
   "spotlightModalViewMode": "list",
   "browserPickerViewMode": "grid",
   "browserUsageHistory": {
     "firefox": {
-      "count": 28,
-      "lastUsed": 1775942208726,
+      "count": 67,
+      "lastUsed": 1779585528630,
       "name": "Firefox"
+    },
+    "thorium-browser": {
+      "count": 1,
+      "lastUsed": 1779002343810,
+      "name": "Thorium Browser"
     }
   },
   "appPickerViewMode": "grid",
@@ -219,10 +227,10 @@
   "niriOverviewOverlayEnabled": true,
   "dankLauncherV2Size": "compact",
   "dankLauncherV2BorderEnabled": false,
-  "dankLauncherV2BorderThickness": 2,
+  "dankLauncherV2BorderThickness": 3,
   "dankLauncherV2BorderColor": "primary",
   "dankLauncherV2ShowFooter": true,
-  "dankLauncherV2UnloadOnClose": false,
+  "dankLauncherV2UnloadOnClose": true,
   "useAutoLocation": true,
   "weatherEnabled": true,
   "networkPreference": "ethernet",
@@ -276,9 +284,9 @@
   "batterySuspendBehavior": 0,
   "batteryProfileName": "",
   "batteryChargeLimit": 100,
-  "lockBeforeSuspend": false,
+  "lockBeforeSuspend": true,
   "loginctlLockIntegration": true,
-  "fadeToLockEnabled": false,
+  "fadeToLockEnabled": true,
   "fadeToLockGracePeriod": 5,
   "fadeToDpmsEnabled": true,
   "fadeToDpmsGracePeriod": 5,
@@ -292,6 +300,10 @@
   "qtThemingEnabled": false,
   "syncModeWithPortal": true,
   "terminalsAlwaysDark": false,
+  "muxType": "tmux",
+  "muxUseCustomCommand": false,
+  "muxCustomCommand": "",
+  "muxSessionFilter": "",
   "runDmsMatugenTemplates": true,
   "matugenTemplateGtk": true,
   "matugenTemplateNiri": true,
@@ -353,7 +365,7 @@
   "lockScreenShowPasswordField": true,
   "lockScreenShowMediaPlayer": true,
   "lockScreenPowerOffMonitorsOnLock": false,
-  "lockAtStartup": false,
+  "lockAtStartup": true,
   "enableFprint": false,
   "maxFprintTries": 15,
   "enableU2f": false,
@@ -412,10 +424,12 @@
   "displayNameMode": "system",
   "screenPreferences": {
     "notepad": [],
-    "dock": []
+    "dock": [
+      "all"
+    ]
   },
   "showOnLastDisplay": {
-    "dock": false
+    "dock": true
   },
   "niriOutputSettings": {
     "DP-1": {
@@ -427,6 +441,10 @@
     "DP-2": {
       "focusAtStartup": true,
       "layout": null
+    },
+    "DP-3": {
+      "vrrOnDemand": true,
+      "focusAtStartup": true
     }
   },
   "hyprlandOutputSettings": {},
