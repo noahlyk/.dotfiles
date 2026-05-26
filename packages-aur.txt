@@ -1,10 +1,11 @@
 appimagetool-bin
 chameleos
 dropbox-cli
+dsearch-bin
 gallery-dl
-gamescope-nvidia
 google-breakpad
 keymux
+krosshair
 opencode-bin
 quickshell-git
 reshade-shaders-git

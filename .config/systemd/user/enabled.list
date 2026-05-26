@@ -1,4 +1,6 @@
+app-dev.lizardbyte.app.Sunshine.service
 dms.service
+dropbox.service
 gamemoded.service
 keymux-niri.service
 p11-kit-server.socket

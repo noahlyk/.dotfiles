@@ -19,7 +19,7 @@ input {
         // accel-speed -0.8
     }
     warp-mouse-to-focus
-    focus-follows-mouse
+    // focus-follows-mouse
     workspace-auto-back-and-forth
     mod-key "Super"
 }
@@ -137,13 +137,13 @@ binds {
     Mod+Tab repeat=false { toggle-overview; }
     Mod+Shift+Slash { show-hotkey-overlay; }
 
-    Ctrl+Alt+Shift+C {
+    Shift+F12 {
         spawn-sh "$HOME/Scripts/obs_ws.sh"
     }
 
-    Shift+F1 { spawn "chamel" "toggle"; }
-    Shift+F2 { spawn "chamel" "undo"; }
-    Shift+F3 { spawn "chamel" "clear-and-deactivate"; }
+    Home { spawn "chamel" "toggle"; }
+    Ctrl+Z { spawn "chamel" "undo"; }
+    Delete { spawn "chamel" "clear-and-deactivate"; }
 
 
     // === Application Launchers ===

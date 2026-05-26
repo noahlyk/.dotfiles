@@ -25,6 +25,9 @@ gpg_key.asc
 # Screenshots
 Pictures/Screenshots/
 
+# Game save files that change on every play session
+*.sav
+
 # Moved runtime/state data
 .config/pulse/
 .config/git-crypt/

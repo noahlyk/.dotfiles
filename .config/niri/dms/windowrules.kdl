@@ -48,3 +48,20 @@ window-rule {
     match app-id="gamescope"
     variable-refresh-rate true
 }
+
+// @id=dms_rule_8 @name=crosshair-overlay
+window-rule {
+    match app-id="crosshair-overlay"
+    clip-to-geometry false
+    draw-border-with-background false
+    opacity 1.00
+    shadow {
+        off
+    }
+    border {
+        off
+    }
+    focus-ring {
+        off
+    }
+}

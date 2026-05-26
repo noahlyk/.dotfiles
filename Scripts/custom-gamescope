@@ -18,6 +18,7 @@ FORCE_GRAB=1
 USE_GAMEMODE=0
 HUD_MODE="no_display"
 FPS_CAP=""
+REFRESH_RATE=""
 DRY_RUN=0
 W="" ; H=""
 SCALE_MODE=""   # new: -S option pass-through
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --windowed) FULLSCREEN=0 ;;
     --no-grab) FORCE_GRAB=0 ;;
     --fps=*) FPS_CAP="${1#--fps=}" ;;
+    --refresh-rate=*) REFRESH_RATE="${1#--refresh-rate=}" ;;
     --gamemode) USE_GAMEMODE=1 ;;
     --no-gamemode) USE_GAMEMODE=0 ;;
     -S) SCALE_MODE="$2"; shift ;;  # pass-through
@@ -88,6 +90,7 @@ if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
   echo "  --ntsync             Enable NTSync for better frame pacing" >&2
   echo "  --dlss               Upgrade DLSS to latest version" >&2
   echo "  --hdr                Enable HDR output" >&2
+  echo "  --refresh-rate=N     Set refresh rate (default: auto-detect from niri)" >&2
   echo "  --hud[=mode]         Enable MangoHud (default/full/minimal)" >&2
   echo "  --crosshair          Enable custom crosshair overlay" >&2
   echo "  --vkpost             Enable vkpost (sharpening)" >&2
@@ -107,12 +110,22 @@ fi
 [[ -n "$W" ]] || W=1920
 [[ -n "$H" ]] || H=1080
 
+# refresh rate: explicit or auto-detect from niri
+if [[ -z "$REFRESH_RATE" ]]; then
+  if out="$(niri msg focused-output 2>/dev/null | grep 'Current mode:' || true)"; then
+    REFRESH_RATE="$(sed -E 's/.* @ ([0-9.]+) Hz.*/\1/' <<<"$out")"
+  fi
+fi
+
 # environment
 export mesa_glthread=true
 export RADV_PERFTEST=gpl
 export IS_GAME=1
 export __GL_THREADED_OPTIMIZATION=1
 export __GL_YIELD=NOTHING
+export PROTON_WAIT_ATTACHED=0
+export PROTON_ENABLE_WAYLAND=1
+export PROTON_USE_EAC_LINUX=1
 
 # Fix stuttering caused by Steam Game Recorder (Steam's LD_PRELOAD injection)
 # Use --steam to preserve Steam overlay (but may cause stutter)
@@ -167,7 +180,6 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   
   if [[ "$USE_SCOPE" -eq 1 ]]; then
     printf 'DRY (scope) would run: '
-    # Show gamemoderun if enabled
     [[ "$USE_GAMEMODE" -eq 1 ]] && printf 'gamemoderun '
     # Show aggressive memory if enabled
     if [[ "$USE_GAMEMODE" -eq 1 && "$AGGRESSIVE_MEM" -eq 1 ]]; then
@@ -189,6 +201,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     [[ -n "$SHARPNESS" ]] && printf -- "--sharpness %s " "$SHARPNESS"
     [[ -n "$FSR_SHARPNESS" ]] && printf -- "--fsr-sharpness %s " "$FSR_SHARPNESS"
     [[ -n "$FPS_CAP" ]] && printf -- "--fps %s " "$FPS_CAP"
+    [[ -n "$REFRESH_RATE" ]] && printf -- "-r %s " "$REFRESH_RATE"
     printf -- "-- "
     printf '%q ' "${GAME_ARGS[@]}"
     echo
@@ -204,8 +217,8 @@ fi
 
 # launch plain mode
 if [[ "$USE_SCOPE" -eq 0 ]]; then
-  # For plain mode, just run the game directly
-  exec "${GAME_ARGS[@]}"
+  exec setsid -w "${GAME_ARGS[@]}"
+  exit 0
 fi
 
 # build gamescope command
@@ -230,6 +243,7 @@ fi
 [[ -n "$SHARPNESS" ]] && CMD+=(--sharpness "$SHARPNESS")
 [[ -n "$FSR_SHARPNESS" ]] && CMD+=(--fsr-sharpness "$FSR_SHARPNESS")
 [[ -n "$FPS_CAP" ]] && CMD+=(--fps "$FPS_CAP")
+[[ -n "$REFRESH_RATE" ]] && CMD+=(-r "$REFRESH_RATE")
 
 # Crosshair overlay uses KROSSHAIR Vulkan layer env vars set above
 
@@ -238,8 +252,10 @@ CMD+=(-- "${GAME_ARGS[@]}")
 
 
 # Run gamescope
+set -m
 "${CMD[@]}" &
 GAMESCOPE_PID=$!
+set +m
 
 # Set up aggressive memory mode AFTER starting gamescope
 if [[ "$USE_GAMEMODE" -eq 1 && "$AGGRESSIVE_MEM" -eq 1 ]]; then
@@ -287,32 +303,34 @@ if [[ "$USE_GAMEMODE" -eq 1 && "$AGGRESSIVE_MEM" -eq 1 ]]; then
   sleep 3
   
   # Protect the game processes directly and keep checking for new ones
-  echo "🔍 Monitoring for new game processes..."
-  while true; do
-    protected_any=0
-    
-    # Get all game processes
-    for pid in $(pgrep -u $USER -f "$GAME_BASENAME" 2>/dev/null); do
-      current_score=$(cat "/proc/$pid/oom_score_adj" 2>/dev/null || echo 0)
-      if [[ "$current_score" != "-1000" ]]; then
-        echo -1000 | sudo tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "🛡️ Protected game PID $pid (was $current_score)"
-        protected_any=1
+  echo "Monitoring for new game processes..."
+  (
+    while true; do
+      protected_any=0
+      
+      # Get all game processes
+      for pid in $(pgrep -u $USER -f "$GAME_BASENAME" 2>/dev/null); do
+        current_score=$(cat "/proc/$pid/oom_score_adj" 2>/dev/null || echo 0)
+        if [[ "$current_score" != "-1000" ]]; then
+          echo -1000 | sudo tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "Protected game PID $pid (was $current_score)"
+          protected_any=1
+        fi
+      done
+      
+      # If no new processes found in the last check, break
+      if [[ "$protected_any" -eq 0 ]]; then
+        echo "No new game processes found, monitoring complete"
+        break
       fi
+      
+      sleep 10
     done
     
-    # If no new processes found in the last check, break
-    if [[ "$protected_any" -eq 0 ]]; then
-      echo "✅ No new game processes found, monitoring complete"
-      break
-    fi
-    
-    sleep 10
-  done
-  
-  # Also protect gamescope
-  for pid in $(pgrep -u $USER "gamescope" 2>/dev/null); do
-    echo -1000 | sudo tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "🛡️ Protected gamescope PID $pid"
-  done
+    # Also protect gamescope
+    for pid in $(pgrep -u $USER "gamescope" 2>/dev/null); do
+      echo -1000 | sudo tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "Protected gamescope PID $pid"
+    done
+  ) &
   
   # Cleanup function to restore original settings
   cleanup() {

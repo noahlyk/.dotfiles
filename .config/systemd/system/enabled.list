@@ -5,12 +5,14 @@ cups.service
 cups.socket
 fstrim.timer
 getty@.service
+greetd.service
 keymux.service
 NetworkManager-dispatcher.service
 NetworkManager.service
 NetworkManager-wait-online.service
+power-profiles-daemon.service
 remote-fs.target
-sddm.service
 sshd.service
 systemd-timesyncd.service
 systemd-userdbd.socket
+wol.service

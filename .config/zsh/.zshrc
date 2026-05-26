@@ -145,11 +145,11 @@ alias cat='bat'
 alias bat='bat --paging never --style=numbers,header-filename'
 alias v="nvim"
 alias less="$MANPAGER"
-pacmanclean() {
+yayclean() {
     local orphans
-    orphans=$(pacman -Qdtq 2>/dev/null)
+    orphans=$(yay -Qdtq 2>/dev/null)
     if [[ -n "$orphans" ]]; then
-        sudo pacman -Rsn $orphans
+        sudo yay -Rsn $orphans
     else
         echo "No orphan packages found"
     fi
