@@ -21,6 +21,7 @@ FPS_CAP=""
 REFRESH_RATE=""
 DRY_RUN=0
 W="" ; H=""
+GW="" ; GH=""
 SCALE_MODE=""   # new: -S option pass-through
 SHARPNESS=""     # new: --sharpness option
 USE_VKBASALT=0   # new: --vkbasalt option
@@ -35,16 +36,18 @@ USE_NTSYNC=0 # new: --ntsync option
 USE_DLSS=0 # new: --dlss option
 USE_HDR=0 # new: --hdr option
 USE_CROSSHAIR=0 # new: --crosshair option
+USE_IMMEDIATE_FLIPS=1
+USE_RT=1
 
 GAME_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --720p) W=1280; H=720 ;;
-    --900p) W=1600; H=900 ;;
-    --1080p) W=1920; H=1080 ;;
-    --1440p) W=2560; H=1440 ;;
-    --res=*) r="${1#--res=}"; W="${r%x*}"; H="${r#*x}" ;;
+    --720p) GW=1280; GH=720 ;;
+    --900p) GW=1600; GH=900 ;;
+    --1080p) GW=1920; GH=1080 ;;
+    --1440p) GW=2560; GH=1440 ;;
+    --res=*) r="${1#--res=}"; GW="${r%x*}"; GH="${r#*x}" ;;
     --hud) HUD_MODE="default" ;;
     --hud=*) HUD_MODE="${1#--hud=}" ;;
     --no-hud) HUD_MODE="no_display" ;;
@@ -73,10 +76,18 @@ while [[ $# -gt 0 ]]; do
     --hdr) USE_HDR=1 ;;
     --dry) DRY_RUN=1 ;;
     --crosshair) USE_CROSSHAIR=1 ;;
+    --immediate-flips) USE_IMMEDIATE_FLIPS=1 ;;
+    --no-immediate-flips) USE_IMMEDIATE_FLIPS=0 ;;
+    --rt) USE_RT=1 ;;
+    --no-rt) USE_RT=0 ;;
     --)
       shift
       GAME_ARGS+=("$@")
       break
+      ;;
+    -*)
+      notify-send -u critical "custom-gamescope: unknown option: $1" "Run with --dry for usage"
+      exit 1
       ;;
     *) GAME_ARGS+=("$1") ;;
   esac
@@ -93,6 +104,8 @@ if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
   echo "  --refresh-rate=N     Set refresh rate (default: auto-detect from niri)" >&2
   echo "  --hud[=mode]         Enable MangoHud (default/full/minimal)" >&2
   echo "  --crosshair          Enable custom crosshair overlay" >&2
+  echo "  --no-immediate-flips Disable immediate flips (on by default)" >&2
+  echo "  --no-rt              Disable realtime scheduling (on by default)" >&2
   echo "  --vkpost             Enable vkpost (sharpening)" >&2
   echo "  --effects            Enable sharpening + contrast (Recommended)" >&2
   echo "  --effects2           Enable high-contrast mode for saturated games (The Finals, OW)" >&2
@@ -101,7 +114,7 @@ if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# resolution auto-detect
+# output resolution auto-detect from niri
 if [[ -z "$W" || -z "$H" ]]; then
   if out="$(niri msg focused-output 2>/dev/null | grep 'Current mode:' || true)"; then
     read -r W H <<<"$(sed -E 's/.* ([0-9]+)x([0-9]+).*/\1 \2/' <<<"$out")"
@@ -109,6 +122,10 @@ if [[ -z "$W" || -z "$H" ]]; then
 fi
 [[ -n "$W" ]] || W=1920
 [[ -n "$H" ]] || H=1080
+
+# game resolution defaults to output if not set
+[[ -z "$GW" ]] && GW="$W"
+[[ -z "$GH" ]] && GH="$H"
 
 # refresh rate: explicit or auto-detect from niri
 if [[ -z "$REFRESH_RATE" ]]; then
@@ -160,10 +177,12 @@ else
   unset VK_ADD_LAYERS || true
 fi
 
-if [[ "$HUD_MODE" != "no_display" ]]; then
-  export MANGOHUD=1
-else
-  unset MANGOHUD || true
+if [[ "$USE_SCOPE" -eq 0 ]]; then
+  if [[ "$HUD_MODE" != "no_display" ]]; then
+    export MANGOHUD=1
+  else
+    unset MANGOHUD || true
+  fi
 fi
 
 # Crosshair overlay config (krosshair Vulkan layer)
@@ -189,9 +208,9 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     fi
     printf 'gamescope '
     if [[ "$FIXED_RES" -eq 1 ]]; then
-      printf -- "-W %s -H %s -w %s -h %s " "$W" "$H" "$W" "$H"
+      printf -- "-W %s -H %s -w %s -h %s " "$W" "$H" "$GW" "$GH"
     else
-      printf -- "-w %s -h %s " "$W" "$H"
+      printf -- "-w %s -h %s " "$GW" "$GH"
     fi
     [[ $FULLSCREEN -eq 1 ]] && printf -- "-f "
     [[ $USE_VRR -eq 1 ]] && printf -- "--adaptive-sync "
@@ -202,6 +221,9 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     [[ -n "$FSR_SHARPNESS" ]] && printf -- "--fsr-sharpness %s " "$FSR_SHARPNESS"
     [[ -n "$FPS_CAP" ]] && printf -- "--fps %s " "$FPS_CAP"
     [[ -n "$REFRESH_RATE" ]] && printf -- "-r %s " "$REFRESH_RATE"
+    [[ $USE_IMMEDIATE_FLIPS -eq 1 ]] && printf -- "--immediate-flips "
+    [[ $USE_RT -eq 1 ]] && printf -- "--rt "
+    [[ "$HUD_MODE" != "no_display" ]] && printf -- "--mangoapp "
     printf -- "-- "
     printf '%q ' "${GAME_ARGS[@]}"
     echo
@@ -230,9 +252,9 @@ if [[ "$USE_GAMEMODE" -eq 1 ]]; then
 fi
 
 if [[ "$FIXED_RES" -eq 1 ]]; then
-  CMD+=(gamescope -W "$W" -H "$H" -w "$W" -h "$H")
+  CMD+=(gamescope -W "$W" -H "$H" -w "$GW" -h "$GH")
 else
-  CMD+=(gamescope -w "$W" -h "$H")
+  CMD+=(gamescope -w "$GW" -h "$GH")
 fi
 
 [[ "$FULLSCREEN" -eq 1 ]] && CMD+=(-f)
@@ -244,6 +266,9 @@ fi
 [[ -n "$FSR_SHARPNESS" ]] && CMD+=(--fsr-sharpness "$FSR_SHARPNESS")
 [[ -n "$FPS_CAP" ]] && CMD+=(--fps "$FPS_CAP")
 [[ -n "$REFRESH_RATE" ]] && CMD+=(-r "$REFRESH_RATE")
+[[ "$USE_IMMEDIATE_FLIPS" -eq 1 ]] && CMD+=(--immediate-flips)
+[[ "$USE_RT" -eq 1 ]] && CMD+=(--rt)
+[[ "$HUD_MODE" != "no_display" ]] && CMD+=(--mangoapp)
 
 # Crosshair overlay uses KROSSHAIR Vulkan layer env vars set above
 
