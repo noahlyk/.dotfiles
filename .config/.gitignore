@@ -63,3 +63,12 @@ Moonlight Game Streaming Project/
 
 # DankMaterialShell standalone plugin repo
 DankMaterialShell/plugins/desktopCommand/
+
+# croc file transfer runtime state
+croc/
+
+# opencode runtime artifacts
+opencode/node_modules/
+opencode/bun.lock
+opencode/package-lock.json
+opencode/package.json

@@ -207,8 +207,8 @@
   "browserPickerViewMode": "grid",
   "browserUsageHistory": {
     "firefox": {
-      "count": 67,
-      "lastUsed": 1779585528630,
+      "count": 95,
+      "lastUsed": 1780839196841,
       "name": "Firefox"
     },
     "thorium-browser": {
@@ -498,11 +498,11 @@
           "enabled": true
         },
         {
-          "id": "dankActions:variant_1763832184872",
+          "id": "network_speed_monitor",
           "enabled": true
         },
         {
-          "id": "network_speed_monitor",
+          "id": "vpn",
           "enabled": true
         },
         {
@@ -574,7 +574,8 @@
       "popupGapsManual": 4,
       "maximizeDetection": true,
       "showOnWindowsOpen": false,
-      "scrollYBehavior": "workspace"
+      "scrollYBehavior": "workspace",
+      "scrollEnabled": false
     }
   ],
   "desktopClockEnabled": false,

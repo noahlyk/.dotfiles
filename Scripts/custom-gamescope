@@ -30,7 +30,6 @@ USE_EFFECTS=0    # new: --effects option (sharpness + contrast)
 USE_EFFECTS_2=0  # new: --effects2 option (contrast heavy for saturated games)
 FSR_SHARPNESS="" # new: --fsr option
 FIXED_RES=1
-AGGRESSIVE_MEM=0 # new: --aggressive-memory option
 USE_STEAM=0 # new: --steam option (preserve Steam overlay)
 USE_NTSYNC=0 # new: --ntsync option
 USE_DLSS=0 # new: --dlss option
@@ -38,11 +37,69 @@ USE_HDR=0 # new: --hdr option
 USE_CROSSHAIR=0 # new: --crosshair option
 USE_IMMEDIATE_FLIPS=1
 USE_RT=1
+PIN_IRQS=0
 
 GAME_ARGS=()
 
+PRECONFIG=""
+PRECONFIG_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --preconfig)
+      PRECONFIG="$2"
+      shift
+      case "$PRECONFIG" in
+        default)
+          USE_SCOPE=1
+          SCALE_MODE="stretch"
+          USE_GAMEMODE=1
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          ;;
+        overwatch)
+          USE_SCOPE=0
+          SCALE_MODE="stretch"
+          USE_GAMEMODE=1
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          PIN_IRQS=1
+          ;;
+        cs2)
+          USE_SCOPE=1
+          SCALE_MODE="stretch"
+          USE_GAMEMODE=1
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          USE_VRR=1
+          PIN_IRQS=1
+          PRECONFIG_ARGS=(-novid -nojoy -high)
+          ;;
+        marvelrivals)
+          USE_SCOPE=1
+          SCALE_MODE="stretch"
+          USE_GAMEMODE=1
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          USE_VRR=1
+          PIN_IRQS=1
+          USE_NTSYNC=0
+          VKD3D_CONFIG=descriptor_heap
+          RADV_EXPERIMENTAL=heap
+          PRECONFIG_ARGS=(-PSOCompileMode=1)
+          WINEDLLOVERRIDES="dsound=n"
+          ;;
+        outlasttrials)
+          USE_GAMEMODE=1
+          HUD_MODE="default"
+          USE_VRR=1
+          export PULSE_LATENCY_MSEC=60
+          ;;
+        *)
+          notify-send -u critical "custom-gamescope: unknown preconfig: $PRECONFIG"
+          exit 1
+          ;;
+      esac
+      ;;
     --720p) GW=1280; GH=720 ;;
     --900p) GW=1600; GH=900 ;;
     --1080p) GW=1920; GH=1080 ;;
@@ -69,7 +126,6 @@ while [[ $# -gt 0 ]]; do
     --effects2) USE_EFFECTS_2=1 ;;
     --fsr) FSR_SHARPNESS="$2"; shift ;;
     --no-fixed-res) FIXED_RES=0 ;;
-    --aggressive-memory) AGGRESSIVE_MEM=1 ;;
     --steam) USE_STEAM=1 ;;
     --ntsync) USE_NTSYNC=1 ;;
     --dlss) USE_DLSS=1 ;;
@@ -80,6 +136,7 @@ while [[ $# -gt 0 ]]; do
     --no-immediate-flips) USE_IMMEDIATE_FLIPS=0 ;;
     --rt) USE_RT=1 ;;
     --no-rt) USE_RT=0 ;;
+    --pin-irqs) PIN_IRQS=1 ;;
     --)
       shift
       GAME_ARGS+=("$@")
@@ -94,8 +151,12 @@ while [[ $# -gt 0 ]]; do
   shift || true
 done
 
+# Append preconfig game args after the game command
+GAME_ARGS+=("${PRECONFIG_ARGS[@]}")
+
 if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
-  echo "Usage: $0 [--scope] [opts] -- <cmd>" >&2
+  echo "Usage: $0 [--preconfig <game>] [--scope] [opts] -- <cmd>" >&2
+  echo "  --preconfig <game>   Use canned preset (cs2)" >&2
   echo "  --scope              Use gamescope" >&2
   echo "  --steam              Keep Steam overlay (may cause stutter)" >&2
   echo "  --ntsync             Enable NTSync for better frame pacing" >&2
@@ -111,6 +172,7 @@ if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
   echo "  --effects2           Enable high-contrast mode for saturated games (The Finals, OW)" >&2
   echo "  --vrr                Enable VRR/adaptive-sync" >&2
   echo "  --gamemode           Use gamemode" >&2
+  echo "  --pin-irqs           Pin IRQs + game to dedicated CPU cores" >&2
   exit 1
 fi
 
@@ -136,13 +198,17 @@ fi
 
 # environment
 export mesa_glthread=true
-export RADV_PERFTEST=gpl
 export IS_GAME=1
 export __GL_THREADED_OPTIMIZATION=1
 export __GL_YIELD=NOTHING
 export PROTON_WAIT_ATTACHED=0
 export PROTON_ENABLE_WAYLAND=1
 export PROTON_USE_EAC_LINUX=1
+export PROTON_CRASH_REPORT=0
+export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+export PROTON_HEAP_DELAY_FREE=1
+export ENABLE_LAYER_MESA_ANTI_LAG=1
+export PROTON_FSR4_UPGRADE=1
 
 # Fix stuttering caused by Steam Game Recorder (Steam's LD_PRELOAD injection)
 # Use --steam to preserve Steam overlay (but may cause stutter)
@@ -154,11 +220,6 @@ fi
 [[ "$USE_NTSYNC" -eq 1 ]] && export PROTON_USE_NTSYNC=1
 [[ "$USE_DLSS" -eq 1 ]] && export PROTON_DLSS_UPGRADE=1
 [[ "$USE_HDR" -eq 1 ]] && export PROTON_ENABLE_HDR=1
-
-# Lock game memory in RAM (only when aggressive-memory is used)
-if [[ "$AGGRESSIVE_MEM" -eq 1 ]] && command -v mlock >/dev/null 2>&1; then
-  export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}libmlock.so"
-fi
 
 # vkbasalt config
 if [[ "$USE_VKBASALT" -eq 1 ]]; then
@@ -192,20 +253,33 @@ fi
 
 # dry-run output
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  # Show enabled env vars
+  echo "mesa_glthread=true"
+  echo "IS_GAME=1"
+  echo "__GL_THREADED_OPTIMIZATION=1"
+  echo "__GL_YIELD=NOTHING"
+  echo "PROTON_WAIT_ATTACHED=0"
+  echo "PROTON_ENABLE_WAYLAND=1"
+  echo "PROTON_USE_EAC_LINUX=1"
+  echo "PROTON_CRASH_REPORT=0"
+  echo "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1"
+  echo "PROTON_HEAP_DELAY_FREE=1"
+  echo "ENABLE_LAYER_MESA_ANTI_LAG=1"
+  echo "PROTON_FSR4_UPGRADE=1"
+  [[ "$USE_STEAM" -eq 0 ]] && echo "LD_PRELOAD="
   [[ "$USE_NTSYNC" -eq 1 ]] && echo "PROTON_USE_NTSYNC=1"
   [[ "$USE_DLSS" -eq 1 ]] && echo "PROTON_DLSS_UPGRADE=1"
   [[ "$USE_HDR" -eq 1 ]] && echo "PROTON_ENABLE_HDR=1"
+  if [[ "$USE_VKBASALT" -eq 1 ]]; then
+    echo "ENABLE_VKBASALT=1"
+    echo "VK_ADD_LAYERS=VK_LAYER_VKBASALT_post_processing"
+  elif [[ "$USE_VKPOST" -eq 1 || "$USE_EFFECTS" -eq 1 || "$USE_EFFECTS_2" -eq 1 ]]; then
+    echo "ENABLE_VKPOST=1"
+  fi
+  [[ "$USE_CROSSHAIR" -eq 1 ]] && echo "KROSSHAIR=1"
   
   if [[ "$USE_SCOPE" -eq 1 ]]; then
-    printf 'DRY (scope) would run: '
+    [[ "$PIN_IRQS" -eq 1 ]] && printf 'sudo pin_irqs && '
     [[ "$USE_GAMEMODE" -eq 1 ]] && printf 'gamemoderun '
-    # Show aggressive memory if enabled
-    if [[ "$USE_GAMEMODE" -eq 1 && "$AGGRESSIVE_MEM" -eq 1 ]]; then
-      printf 'sudo cgexec -g memory:games-premium '
-    elif [[ "$USE_GAMEMODE" -eq 1 ]]; then
-      printf 'sudo cgexec -g memory:games-premium '
-    fi
     printf 'gamescope '
     if [[ "$FIXED_RES" -eq 1 ]]; then
       printf -- "-W %s -H %s -w %s -h %s " "$W" "$H" "$GW" "$GH"
@@ -228,7 +302,6 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     printf '%q ' "${GAME_ARGS[@]}"
     echo
   else
-    printf 'DRY (plain) would run: '
     # Show gamemoderun if enabled
     [[ "$USE_GAMEMODE" -eq 1 ]] && printf 'gamemoderun '
     printf '%q ' "${GAME_ARGS[@]}"
@@ -274,7 +347,18 @@ fi
 
 CMD+=(-- "${GAME_ARGS[@]}")
 
-
+# Pin IRQs to CPU 0, game to CPUs 1-11
+pin_irqs() {
+  sudo bash -c '
+    echo 1 > /proc/irq/34/smp_affinity 2>/dev/null
+    echo 1 > /proc/irq/38/smp_affinity 2>/dev/null
+    echo 1 > /proc/irq/47/smp_affinity 2>/dev/null
+  '
+}
+if [[ "$PIN_IRQS" -eq 1 ]]; then
+  pin_irqs
+  CMD=(taskset -c 1-11 "${CMD[@]}")
+fi
 
 # Run gamescope
 set -m
@@ -282,117 +366,51 @@ set -m
 GAMESCOPE_PID=$!
 set +m
 
-# Set up aggressive memory mode AFTER starting gamescope
-if [[ "$USE_GAMEMODE" -eq 1 && "$AGGRESSIVE_MEM" -eq 1 ]]; then
-  # Save original swappiness
-  ORIGINAL_SWAPPINESS=$(cat /proc/sys/vm/swappiness 2>/dev/null || echo 60)
-  
-  echo "🚀 Aggressive memory mode: optimizing memory for gaming..."
-  
-  # Extract game name dynamically from the command we're running
-  GAME_BASENAME=$(basename "${GAME_ARGS[0]}" | sed 's/\.[^.]*$//')
-  echo "🎮 Detected game: $GAME_BASENAME"
-  
-  # Single pkexec call to set everything up and get sudo access
-  sudo bash -c '
-    # Set high swappiness to force other apps to swap and make room
-    sysctl vm.swappiness=80 2>/dev/null || true
-    
-    # Protect the game we are running FIRST
-    for pid in $(pgrep -u '$USER' -f "'$GAME_BASENAME'" 2>/dev/null); do
-      echo -1000 | tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "🛡️ Protected game PID $pid"
-    done
-    
-    # Also protect gamescope
-    for pid in $(pgrep -u '$USER' "gamescope" 2>/dev/null); do
-      echo -1000 | tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "🛡️ Protected gamescope PID $pid"
-    done
-    
-    # Penalize memory-heavy apps to free up 1-2GB overhead
-    for app in firefox discord chrome steam spotify; do
-      for pid in $(pgrep -u '$USER' "$app" 2>/dev/null | head -3); do
-        echo 500 | tee "/proc/$pid/oom_score_adj" 2>/dev/null || true
-        echo "⚠️ Penalized $app PID $pid to free memory"
-      done
-    done
-  '
-  
-  # Refresh sudo credentials for the rest of the session
-  sudo -v
-  
-  # Protect this script and all children (including the game)
-  echo $$ | sudo tee /proc/self/oom_score_adj >/dev/null
-  echo "🛡️ Protected script PID $$ and all children"
-  
-  # Wait a moment for game to start
-  sleep 3
-  
-  # Protect the game processes directly and keep checking for new ones
-  echo "Monitoring for new game processes..."
-  (
-    while true; do
-      protected_any=0
-      
-      # Get all game processes
-      for pid in $(pgrep -u $USER -f "$GAME_BASENAME" 2>/dev/null); do
-        current_score=$(cat "/proc/$pid/oom_score_adj" 2>/dev/null || echo 0)
-        if [[ "$current_score" != "-1000" ]]; then
-          echo -1000 | sudo tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "Protected game PID $pid (was $current_score)"
-          protected_any=1
-        fi
-      done
-      
-      # If no new processes found in the last check, break
-      if [[ "$protected_any" -eq 0 ]]; then
-        echo "No new game processes found, monitoring complete"
-        break
-      fi
-      
-      sleep 10
-    done
-    
-    # Also protect gamescope
-    for pid in $(pgrep -u $USER "gamescope" 2>/dev/null); do
-      echo -1000 | sudo tee "/proc/$pid/oom_score_adj" 2>/dev/null && echo "Protected gamescope PID $pid"
-    done
-  ) &
-  
-  # Cleanup function to restore original settings
-  cleanup() {
-    echo "🔄 Restoring original swappiness ($ORIGINAL_SWAPPINESS)..."
-    
-    # Use sudo (should still have auth) to restore settings
-    echo "$ORIGINAL_SWAPPINESS" | sudo tee /proc/sys/vm/swappiness 2>/dev/null || true
-    
-    # Reset OOM scores for all processes to default
-    for pid in $(pgrep -u $USER 2>/dev/null); do
-      if [[ -f "/proc/$pid/oom_score_adj" ]]; then
-        echo 0 | sudo tee "/proc/$pid/oom_score_adj" 2>/dev/null || true
-      fi
-    done
-  }
-  
-  # Set up cleanup on game exit
-  trap "cleanup" EXIT INT TERM
-fi
-
 wait $GAMESCOPE_PID
 
-# Cleanup after game exits
-if [[ "$USE_GAMEMODE" -eq 1 && "$AGGRESSIVE_MEM" -eq 1 ]]; then
-  echo "🔄 Restoring original swappiness ($ORIGINAL_SWAPPINESS)..."
-  
-  # Use pkexec to restore settings (ensure we have permissions)
-  sudo bash -c "
-    echo '$ORIGINAL_SWAPPINESS' | tee /proc/sys/vm/swappiness 2>/dev/null || true
-    echo 'Swappiness restored to $ORIGINAL_SWAPPINESS'
-    
-    # Reset OOM scores for all processes to default
-    for pid in \$(pgrep -u $USER 2>/dev/null); do
-      if [[ -f '/proc/\$pid/oom_score_adj' ]]; then
-        echo 0 | tee '/proc/\$pid/oom_score_adj' 2>/dev/null || true
-      fi
-    done
-    echo 'OOM scores reset to default'
-  "
-fi
+# === SYSTEM CONFIG LOG (reapply on rebuild) ===
+#
+# /etc/modprobe.d/nvidia.conf
+#   -> options nvidia-drm modeset=1 fbdev=1
+#      (DRM + framebuffer for Wayland)
+#   -> options nvidia NVreg_UsePageAttributeTable=1
+#      (faster memory mapping via PAT)
+#   -> options nvidia NVreg_InitializeSystemMemoryAllocations=0
+#      (skip zeroing on driver init = less stutter)
+#
+# /etc/libinput/local-overrides.quirks
+#   -> [Never Debounce] / MatchUdevType=mouse / ModelBouncingKeys=1
+#      (disables libinput debounce = lower click latency)
+#
+# ~/.config/gamemode.ini
+#   -> removed [swappiness] section (was 10)
+#      (lets system default handle swap)
+#
+# GRUB_CMDLINE_LINUX_DEFAULT additions:
+#   processor.max_cstate=1
+#     (prevents deep C-state wakeup latency = less microstutter)
+#   mitigations=off
+#     (5-8% CPU gain on Zen 3, security trade-off)
+#   amd_pstate_epp=performance
+#     (forces max-performance freq scaling)
+#   nosmt
+#     (disables SMT, each physical core gets full pipeline)
+#   split_lock_detect=off
+#     (prevents CPU stalls from misaligned atomics in games)
+#   transparent_hugepage=madvise
+#     (reduces memory compaction stutter vs always)
+#   -> after editing: sudo grub-mkconfig -o /boot/grub/grub.cfg
+#
+# /etc/modules-load.d/tcp_bbr.conf -> tcp_bbr
+# /etc/sysctl.d/99-bbr.conf       -> net.ipv4.tcp_congestion_control=bbr
+# /etc/sysctl.d/99-network.conf   -> net.ipv4.tcp_fastopen=3
+#                                -> net.ipv4.tcp_slow_start_after_idle=0
+#   -> BBR + TCP tweaks for lower network latency
+#
+# /etc/sysctl.d/99-sched.conf     -> kernel.sched_autogroup_enabled=0
+#   -> more consistent CPU scheduling
+#
+# Script --pin-irqs (enabled by --preconfig cs2):
+#   -> pins network+USB IRQs to CPU 0
+#   -> pins game to CPUs 1-11 via taskset
+#   -> prevents interrupt jitter on game cores

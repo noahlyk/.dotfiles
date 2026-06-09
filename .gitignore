@@ -37,3 +37,7 @@ Pictures/Screenshots/
 .local/share/vim/
 .local/state/
 .cache/nv/
+
+# Node.js artifacts (global)
+node_modules/
+package-lock.json
