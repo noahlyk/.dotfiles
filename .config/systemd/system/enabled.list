@@ -1,5 +1,6 @@
 actions-runner.service
 bluetooth.service
+cpu-performance.service
 cups.path
 cups.service
 cups.socket
@@ -10,9 +11,16 @@ keymux.service
 NetworkManager-dispatcher.service
 NetworkManager.service
 NetworkManager-wait-online.service
+nvidia-persistenced.service
 power-profiles-daemon.service
+qbittorrent-vpn-netns.service
+qbittorrent-vpn.service
 remote-fs.target
 sshd.service
+systemd-resolved-monitor.socket
+systemd-resolved.service
+systemd-resolved-varlink.socket
 systemd-timesyncd.service
 systemd-userdbd.socket
+tailscaled.service
 wol.service

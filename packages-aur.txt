@@ -1,6 +1,8 @@
 appimagetool-bin
 chameleos
+clipboard-sync
 crosshair-maker
+ddcui
 dropbox-cli
 dsearch-bin
 gallery-dl
@@ -25,6 +27,7 @@ ttf-twemoji
 ttf-twemoji-color
 vkbasalt
 vkpost
+vlc-pause-click-plugin
 xpadneo-dkms
 yay-bin-debug
 yt-transcriber
