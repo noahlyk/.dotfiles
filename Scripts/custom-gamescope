@@ -74,6 +74,14 @@ while [[ $# -gt 0 ]]; do
           PIN_IRQS=1
           PRECONFIG_ARGS=(-novid -nojoy -high)
           ;;
+        thefinals)
+          USE_SCOPE=1
+          SCALE_MODE="stretch"
+          USE_GAMEMODE=1
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          USE_VRR=1
+          ;;
         marvelrivals)
           USE_SCOPE=1
           SCALE_MODE="stretch"

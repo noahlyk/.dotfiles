@@ -41,6 +41,7 @@ fzf
 gamemode
 gamescope
 gdb
+ghostscript
 gimp
 git-crypt
 github-cli
@@ -56,9 +57,11 @@ interception-tools
 iptables
 jemalloc
 jq
+kdeconnect
 keepassxc
 khal
 kimageformats
+kio-fuse
 kitty
 less
 libnatpmp
@@ -67,6 +70,7 @@ linux-firmware
 linux-zen
 linux-zen-headers
 lolcat
+loupe
 lshw
 lua51
 luarocks
@@ -123,13 +127,13 @@ rustup
 satty
 speedtest-cli
 spirv-headers
+sshfs
 steam
 stow
 strace
 sunshine
 system-config-printer
 systemd-resolvconf
-tailscale
 tesseract
 tesseract-data-eng
 tmux
@@ -191,6 +195,7 @@ ttf-ubuntu-nerd
 ttf-victor-mono-nerd
 ttf-zed-mono-nerd
 udiskie
+ufw
 unzip
 virtualbox
 virtualbox-host-dkms
@@ -216,6 +221,8 @@ xdg-desktop-portal-gnome
 xdg-desktop-portal-gtk
 xwayland-satellite
 yazi
+zathura
+zathura-pdf-mupdf
 zip
 zram-generator
 zsh

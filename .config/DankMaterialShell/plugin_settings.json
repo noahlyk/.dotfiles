@@ -44,5 +44,12 @@
   },
   "desktopCommand": {
     "enabled": false
+  },
+  "extendedNetworkToggle": {
+    "enabled": true
+  },
+  "dankKDEConnect": {
+    "enabled": true,
+    "selectedDeviceId": "734bcb70896545f9a63fde05f059f535"
   }
 }

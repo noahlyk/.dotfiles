@@ -41,3 +41,10 @@ Pictures/Screenshots/
 # Node.js artifacts (global)
 node_modules/
 package-lock.json
+
+# DankMaterialShell plugin manager cache
+.config/DankMaterialShell/plugins/.repos/
+
+# KDE Connect crypto keys
+.config/kdeconnect/privateKey.pem
+.config/kdeconnect/certificate.pem

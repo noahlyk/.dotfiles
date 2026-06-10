@@ -29,6 +29,5 @@ vkbasalt
 vkpost
 vlc-pause-click-plugin
 xpadneo-dkms
-yay-bin-debug
 yt-transcriber
 zsh-theme-powerlevel10k-bin-git
