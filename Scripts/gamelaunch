@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# default mode: plain
-USE_SCOPE=0
-case "${1:-}" in
-  --scope)
-    USE_SCOPE=1
-    shift
-    ;;
-esac
-
 # defaults
-USE_VRR=0
+USE_SCOPE=0
+USE_VRR=1
 USE_EXPOSE_WL=0
 FULLSCREEN=1
 FORCE_GRAB=1
-USE_GAMEMODE=0
+USE_GAMEMODE=1
 HUD_MODE="no_display"
 FPS_CAP=""
 REFRESH_RATE=""
@@ -51,59 +43,52 @@ while [[ $# -gt 0 ]]; do
       case "$PRECONFIG" in
         default)
           USE_SCOPE=1
-          SCALE_MODE="stretch"
-          USE_GAMEMODE=1
           HUD_MODE="default"
           USE_CROSSHAIR=1
+          PIN_IRQS=1
           ;;
         overwatch)
-          USE_SCOPE=0
-          SCALE_MODE="stretch"
-          USE_GAMEMODE=1
+          # native Wayland via PROTON_ENABLE_WAYLAND (no gamescope)
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          PIN_IRQS=1
+          ;;
+        kovaaks)
+          USE_SCOPE=1
           HUD_MODE="default"
           USE_CROSSHAIR=1
           PIN_IRQS=1
           ;;
         cs2)
-          USE_SCOPE=1
-          SCALE_MODE="stretch"
-          USE_GAMEMODE=1
+          # native Wayland via SDL (no gamescope)
           HUD_MODE="default"
           USE_CROSSHAIR=1
-          USE_VRR=1
           PIN_IRQS=1
-          PRECONFIG_ARGS=(-novid -nojoy -high)
+          export SDL_VIDEO_DRIVER=wayland
+          PRECONFIG_ARGS=(-novid -nojoy -high -fullscreen -allow_third_party_software -ct allow -sdlaudiodriver pipewire)
           ;;
         thefinals)
           USE_SCOPE=1
-          SCALE_MODE="stretch"
-          USE_GAMEMODE=1
           HUD_MODE="default"
           USE_CROSSHAIR=1
-          USE_VRR=1
+          PIN_IRQS=1
           ;;
         marvelrivals)
           USE_SCOPE=1
-          SCALE_MODE="stretch"
-          USE_GAMEMODE=1
           HUD_MODE="default"
           USE_CROSSHAIR=1
-          USE_VRR=1
           PIN_IRQS=1
           USE_NTSYNC=0
-          VKD3D_CONFIG=descriptor_heap
-          RADV_EXPERIMENTAL=heap
+          export VKD3D_CONFIG=descriptor_heap
+          export RADV_EXPERIMENTAL=heap
           PRECONFIG_ARGS=(-PSOCompileMode=1)
-          WINEDLLOVERRIDES="dsound=n"
+          export WINEDLLOVERRIDES="dsound=n"
           ;;
         outlasttrials)
-          USE_GAMEMODE=1
           HUD_MODE="default"
-          USE_VRR=1
-          export PULSE_LATENCY_MSEC=60
           ;;
         *)
-          notify-send -u critical "custom-gamescope: unknown preconfig: $PRECONFIG"
+          notify-send -u critical "gamelaunch: unknown preconfig: $PRECONFIG"
           exit 1
           ;;
       esac
@@ -144,6 +129,8 @@ while [[ $# -gt 0 ]]; do
     --no-immediate-flips) USE_IMMEDIATE_FLIPS=0 ;;
     --rt) USE_RT=1 ;;
     --no-rt) USE_RT=0 ;;
+    --scope) USE_SCOPE=1 ;;
+    --no-scope) USE_SCOPE=0 ;;
     --pin-irqs) PIN_IRQS=1 ;;
     --)
       shift
@@ -151,7 +138,7 @@ while [[ $# -gt 0 ]]; do
       break
       ;;
     -*)
-      notify-send -u critical "custom-gamescope: unknown option: $1" "Run with --dry for usage"
+      notify-send -u critical "gamelaunch: unknown option: $1" "Run with --dry for usage"
       exit 1
       ;;
     *) GAME_ARGS+=("$1") ;;
@@ -183,6 +170,9 @@ if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
   echo "  --pin-irqs           Pin IRQs + game to dedicated CPU cores" >&2
   exit 1
 fi
+
+# default stretch scaling when using gamescope
+[[ "$USE_SCOPE" -eq 1 && -z "$SCALE_MODE" ]] && SCALE_MODE="stretch"
 
 # output resolution auto-detect from niri
 if [[ -z "$W" || -z "$H" ]]; then
@@ -310,7 +300,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     printf '%q ' "${GAME_ARGS[@]}"
     echo
   else
-    # Show gamemoderun if enabled
+    [[ "$PIN_IRQS" -eq 1 ]] && printf 'pin_irqs && taskset -c 1-11 '
     [[ "$USE_GAMEMODE" -eq 1 ]] && printf 'gamemoderun '
     printf '%q ' "${GAME_ARGS[@]}"
     echo
@@ -318,9 +308,26 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
+# Pin IRQs to CPU 0, game to CPUs 1-11
+pin_irqs() {
+  sudo bash -c '
+    echo 1 > /proc/irq/34/smp_affinity 2>/dev/null
+    echo 1 > /proc/irq/38/smp_affinity 2>/dev/null
+    echo 1 > /proc/irq/47/smp_affinity 2>/dev/null
+  '
+}
+
 # launch plain mode
 if [[ "$USE_SCOPE" -eq 0 ]]; then
-  exec setsid -w "${GAME_ARGS[@]}"
+  PLAIN_CMD=("${GAME_ARGS[@]}")
+  if [[ "$USE_GAMEMODE" -eq 1 ]]; then
+    PLAIN_CMD=(gamemoderun "${PLAIN_CMD[@]}")
+  fi
+  if [[ "$PIN_IRQS" -eq 1 ]]; then
+    pin_irqs
+    PLAIN_CMD=(taskset -c 1-11 "${PLAIN_CMD[@]}")
+  fi
+  exec setsid -w "${PLAIN_CMD[@]}"
   exit 0
 fi
 
@@ -355,20 +362,13 @@ fi
 
 CMD+=(-- "${GAME_ARGS[@]}")
 
-# Pin IRQs to CPU 0, game to CPUs 1-11
-pin_irqs() {
-  sudo bash -c '
-    echo 1 > /proc/irq/34/smp_affinity 2>/dev/null
-    echo 1 > /proc/irq/38/smp_affinity 2>/dev/null
-    echo 1 > /proc/irq/47/smp_affinity 2>/dev/null
-  '
-}
 if [[ "$PIN_IRQS" -eq 1 ]]; then
   pin_irqs
   CMD=(taskset -c 1-11 "${CMD[@]}")
 fi
 
 # Run gamescope
+notify-send "${CMD[@]}"
 set -m
 "${CMD[@]}" &
 GAMESCOPE_PID=$!
@@ -376,49 +376,3 @@ set +m
 
 wait $GAMESCOPE_PID
 
-# === SYSTEM CONFIG LOG (reapply on rebuild) ===
-#
-# /etc/modprobe.d/nvidia.conf
-#   -> options nvidia-drm modeset=1 fbdev=1
-#      (DRM + framebuffer for Wayland)
-#   -> options nvidia NVreg_UsePageAttributeTable=1
-#      (faster memory mapping via PAT)
-#   -> options nvidia NVreg_InitializeSystemMemoryAllocations=0
-#      (skip zeroing on driver init = less stutter)
-#
-# /etc/libinput/local-overrides.quirks
-#   -> [Never Debounce] / MatchUdevType=mouse / ModelBouncingKeys=1
-#      (disables libinput debounce = lower click latency)
-#
-# ~/.config/gamemode.ini
-#   -> removed [swappiness] section (was 10)
-#      (lets system default handle swap)
-#
-# GRUB_CMDLINE_LINUX_DEFAULT additions:
-#   processor.max_cstate=1
-#     (prevents deep C-state wakeup latency = less microstutter)
-#   mitigations=off
-#     (5-8% CPU gain on Zen 3, security trade-off)
-#   amd_pstate_epp=performance
-#     (forces max-performance freq scaling)
-#   nosmt
-#     (disables SMT, each physical core gets full pipeline)
-#   split_lock_detect=off
-#     (prevents CPU stalls from misaligned atomics in games)
-#   transparent_hugepage=madvise
-#     (reduces memory compaction stutter vs always)
-#   -> after editing: sudo grub-mkconfig -o /boot/grub/grub.cfg
-#
-# /etc/modules-load.d/tcp_bbr.conf -> tcp_bbr
-# /etc/sysctl.d/99-bbr.conf       -> net.ipv4.tcp_congestion_control=bbr
-# /etc/sysctl.d/99-network.conf   -> net.ipv4.tcp_fastopen=3
-#                                -> net.ipv4.tcp_slow_start_after_idle=0
-#   -> BBR + TCP tweaks for lower network latency
-#
-# /etc/sysctl.d/99-sched.conf     -> kernel.sched_autogroup_enabled=0
-#   -> more consistent CPU scheduling
-#
-# Script --pin-irqs (enabled by --preconfig cs2):
-#   -> pins network+USB IRQs to CPU 0
-#   -> pins game to CPUs 1-11 via taskset
-#   -> prevents interrupt jitter on game cores

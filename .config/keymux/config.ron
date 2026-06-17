@@ -71,6 +71,9 @@
                 KC_K: KC_UP,
                 KC_L: KC_RGHT,
 
+                KC_U: KC_PGUP,
+                KC_D: KC_PGDN,
+
                 KC_BSPC: CMD("/home/fib/.config/keymux/password.sh"),
             },
         ),

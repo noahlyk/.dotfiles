@@ -127,6 +127,7 @@ bindkey -M menuselect 'l' vi-forward-char
 bindkey -M menuselect 'j' vi-down-line-or-history
 
 alias makepkg-atomic='~/Scripts/makepkg-atomic.sh'
+alias dl='~/Scripts/download.sh'
 alias sudo='sudo ' # allows aliases with sudo
 alias tm='trash'
 alias ..='cd ..'
@@ -190,80 +191,6 @@ function load_environment_files() {
     set +a
 }
 load_environment_files
-
-function download {
-    local highlight=false
-    local urls=()
-    local filepaths=()
-    local other_args=()
-    local expect_filepath=false
-    local default_dir="$HOME/Downloads"
-
-    for arg in "$@"; do
-        if [[ "$arg" == "--highlight" ]]; then
-            highlight=true
-        elif [[ "$arg" =~ ^https?:// ]]; then
-            urls+=("$arg")
-            expect_filepath=true
-        elif $expect_filepath && [[ "$arg" != --* ]]; then
-            filepaths+=("$arg")
-            expect_filepath=false
-        else
-            other_args+=("$arg")
-        fi
-    done
-
-    for ((i=1; i<=$#urls; i++)); do
-        local url="${urls[$i]}"
-        local filepath="${filepaths[$i]:-}"
-
-        if [[ "$url" =~ ^https?://(www\.)?(youtube\.com|youtu\.be)/ ]]; then
-            local start=""
-            if $highlight; then
-                start=$(yt-dlp "$url" --skip-download --print "sponsorblock_poi_highlight[0].start" 2>/dev/null)
-                if ! [[ "$start" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-                    start=""
-                fi
-            fi
-
-            if [[ -n "$filepath" ]]; then
-                yt-dlp "$url" "${other_args[@]}" \
-                    --merge-output-format mp4 \
-                    --sponsorblock-mark poi_highlight \
-                    --no-write-info-json \
-                    --clean-info-json \
-                    -o "$filepath"
-            else
-                yt-dlp "$url" "${other_args[@]}" \
-                    --merge-output-format mp4 \
-                    --sponsorblock-mark poi_highlight \
-                    --no-write-info-json \
-                    --clean-info-json \
-                    -P "$default_dir"
-            fi
-
-            if [[ -n "$start" ]]; then
-                local vidfile
-                if [[ -n "$filepath" ]]; then
-                    vidfile="$filepath"
-                else
-                    vidfile="$default_dir/"$(yt-dlp --get-filename "$url" "${other_args[@]}" -o "%(title)s.%(ext)s")
-                fi
-                if [[ -f "$vidfile" ]]; then
-                    local tmpfile="${vidfile}.trim.tmp"
-                    ffmpeg -ss "$start" -i "$vidfile" -c copy "$tmpfile" && mv "$tmpfile" "$vidfile"
-                fi
-            fi
-
-        else
-            if [[ -n "$filepath" ]]; then
-                gallery-dl "$url" -D "$filepath" --cookies-from-browser firefox "${other_args[@]}"
-            else
-                gallery-dl "$url" -D "$default_dir" --cookies-from-browser firefox "${other_args[@]}"
-            fi
-        fi
-    done
-}
 
 function stow_dotfiles {
     local cwd=$(pwd)

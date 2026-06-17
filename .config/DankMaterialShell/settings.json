@@ -389,7 +389,7 @@
   "notificationHistorySaveCritical": true,
   "notificationRules": [],
   "osdAlwaysShowValue": true,
-  "osdPosition": 4,
+  "osdPosition": 0,
   "osdVolumeEnabled": true,
   "osdMediaVolumeEnabled": true,
   "osdMediaPlaybackEnabled": true,
@@ -483,7 +483,7 @@
         {
           "id": "music",
           "enabled": true,
-          "mediaSize": 1
+          "mediaSize": 0
         },
         {
           "id": "clock",

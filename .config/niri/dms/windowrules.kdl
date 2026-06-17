@@ -46,22 +46,19 @@ window-rule {
 // @id=dms_rule_7 @name=vrr
 window-rule {
     match app-id="gamescope"
+    match app-id="cs2"
+    match app-id="^steam_app_"
     variable-refresh-rate true
+    open-fullscreen true
+    geometry-corner-radius 0
+    clip-to-geometry false
 }
 
 // @id=dms_rule_8 @name=crosshair-overlay
 window-rule {
     match app-id="crosshair-overlay"
-    clip-to-geometry false
-    draw-border-with-background false
     opacity 1.00
-    shadow {
-        off
-    }
-    border {
-        off
-    }
-    focus-ring {
-        off
-    }
+    border { off; }
+    focus-ring { off; }
+    draw-border-with-background false
 }

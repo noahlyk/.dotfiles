@@ -138,8 +138,12 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     Shift+F12 {
-        spawn-sh "$HOME/Scripts/obs_ws.sh"
+        spawn-sh "$HOME/Scripts/obs_ws.py replay"
     }
+
+    // MouseRight {
+    //     spawn-sh "$HOME/Scripts/obs_ws.py toggle-recording-with-music"
+    // }
 
     Home { spawn "chamel" "toggle"; }
     Ctrl+Z { spawn "chamel" "undo"; }
@@ -164,6 +168,9 @@ binds {
     }
     Mod+Y hotkey-overlay-title="Browse Wallpapers" {
         spawn "dms" "ipc" "call" "dankdash" "wallpaper";
+    }
+    Mod+D hotkey-overlay-title="Download Clipboard URL" {
+        spawn-sh "$HOME/Scripts/download.sh --temp --notify";
     }
     Mod+N hotkey-overlay-title="Notification Center" {
         spawn "dms" "ipc" "call" "notifications" "toggle";

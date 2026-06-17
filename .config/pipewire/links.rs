@@ -96,7 +96,11 @@ impl PipeWireManager {
         let mut outputs = Vec::new();
 
         for line in stdout.lines() {
-            if line.contains("node.name") && line.contains("alsa_output") {
+            // Only route to Komplete Audio output, not HDMI/IEC958/other outputs
+            if line.contains("node.name")
+                && line.contains("alsa_output")
+                && line.contains("Komplete")
+            {
                 if let Some(start) = line.find("node.name = \"") {
                     let start = start + 13;
                     if let Some(end) = line[start..].find("\"") {
