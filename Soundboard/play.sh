@@ -72,11 +72,9 @@ fi
 
 PATTERN="$1"
 
-shopt -s nullglob
-MATCHING_FILES=($SCRIPT_DIR/$PATTERN\ *)
-shopt -u nullglob
-[ -f "$SCRIPT_DIR/$PATTERN" ] && MATCHING_FILES+=("$SCRIPT_DIR/$PATTERN")
+MATCHING_FILES=("$SCRIPT_DIR/$PATTERN"*)
 
+echo "${MATCHING_FILES[@]}"
 if [ ${#MATCHING_FILES[@]} -eq 0 ] || [ ! -f "${MATCHING_FILES[0]}" ]; then
     echo "No file found matching pattern: $PATTERN"
     exit 1

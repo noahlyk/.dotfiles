@@ -1,16 +1,11 @@
 [Default Applications]
-# Web browser
 x-scheme-handler/http=firefox.desktop
 x-scheme-handler/https=firefox.desktop
 x-scheme-handler/about=firefox.desktop
 x-scheme-handler/unknown=firefox.desktop
 text/html=firefox.desktop
 application/xhtml+xml=firefox.desktop
-
-# File manager
 inode/directory=org.gnome.Nautilus.desktop
-
-# Image viewer
 image/png=org.gnome.Loupe.desktop
 image/jpeg=org.gnome.Loupe.desktop
 image/gif=org.gnome.Loupe.desktop
@@ -23,11 +18,7 @@ image/avif=org.gnome.Loupe.desktop
 image/heif=org.gnome.Loupe.desktop
 image/heic=org.gnome.Loupe.desktop
 image/jxl=org.gnome.Loupe.desktop
-
-# PDF viewer
 application/pdf=org.pwmt.zathura.desktop
-
-# Video player
 video/mp4=vlc.desktop
 video/x-matroska=vlc.desktop
 video/webm=vlc.desktop
@@ -38,8 +29,6 @@ video/mpeg=vlc.desktop
 video/ogg=vlc.desktop
 video/x-ms-wmv=vlc.desktop
 video/3gpp=vlc.desktop
-
-# Audio player
 audio/mpeg=vlc.desktop
 audio/flac=vlc.desktop
 audio/ogg=vlc.desktop
@@ -52,14 +41,12 @@ audio/webm=vlc.desktop
 audio/opus=vlc.desktop
 audio/x-vorbis+ogg=vlc.desktop
 audio/x-flac=vlc.desktop
-
-# Text editor
 text/plain=nvim.desktop
-
-# KDE Connect
 x-scheme-handler/kdeconnect=kdeconnect-browse.desktop
-
-# Archives
 application/zip=org.gnome.Nautilus.desktop
 application/x-tar=org.gnome.Nautilus.desktop
 application/gzip=org.gnome.Nautilus.desktop
+x-scheme-handler/tonsite=org.telegram.desktop.desktop
+
+[Added Associations]
+x-scheme-handler/tonsite=org.telegram.desktop.desktop;

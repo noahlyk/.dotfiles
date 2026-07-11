@@ -175,12 +175,14 @@ for ((i=0; i<${#urls[@]}; i++)); do
             [[ "$start" =~ ^[0-9]+(\.[0-9]+)?$ ]] || start=""
         fi
 
-        if ! yt-dlp "$url" "${other_args[@]}" \
+        notify-send -a "download" "YT Download started" "${urls[*]}"
+        if ! downloaded_file=$(yt-dlp "$url" "${other_args[@]}" \
             --merge-output-format mp4 \
             --sponsorblock-mark poi_highlight \
             --no-write-info-json \
             --clean-info-json \
-            "${ytdlp_out[@]}"; then
+            --print "after_move:filepath" \
+            "${ytdlp_out[@]}"); then
             failed=true
             continue
         fi

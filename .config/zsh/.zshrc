@@ -24,7 +24,7 @@ export EDITOR='nvim'
 [[ -n $SSH_CONNECTION ]] && export EDITOR='vim'
 
 path=(
-    $CARGO_HOME/bin
+    $HOME/.cargo/bin
     $PYENV_ROOT/bin
     $HOME/.local/bin
     /usr/local/bin
@@ -126,6 +126,7 @@ bindkey -M menuselect 'k' vi-up-line-or-history
 bindkey -M menuselect 'l' vi-forward-char
 bindkey -M menuselect 'j' vi-down-line-or-history
 
+alias c='qalc'
 alias makepkg-atomic='~/Scripts/makepkg-atomic.sh'
 alias dl='~/Scripts/download.sh'
 alias sudo='sudo ' # allows aliases with sudo

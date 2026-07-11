@@ -59,11 +59,15 @@ while [[ $# -gt 0 ]]; do
           USE_CROSSHAIR=1
           PIN_IRQS=1
           ;;
+        combatmaster)
+          # native Wayland via SDL (no gamescope)
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          ;;
         cs2)
           # native Wayland via SDL (no gamescope)
           HUD_MODE="default"
           USE_CROSSHAIR=1
-          PIN_IRQS=1
           export SDL_VIDEO_DRIVER=wayland
           PRECONFIG_ARGS=(-novid -nojoy -high -fullscreen -allow_third_party_software -ct allow -sdlaudiodriver pipewire)
           ;;
