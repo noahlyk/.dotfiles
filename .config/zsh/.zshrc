@@ -80,18 +80,20 @@ bindkey '^s' sudo_toggle  # Ctrl+S to toggle sudo
 function zle-keymap-select {
     case $KEYMAP in
         vicmd|visual) echo -ne '\e[2 q';;  # block cursor
-        viins|main)   echo -ne '\e[2 q';;  # block cursor
+        viins|main)   echo -ne '\e[6 q';;  # beam cursor
         replace)      echo -ne '\e[4 q';;  # underscore cursor
     esac
 }
 zle -N zle-keymap-select
-echo -ne '\e[2 q'  # block cursor on startup
+echo -ne '\e[6 q'  # beam cursor on startup (insert mode)
 
 
 HISTFILE="${XDG_STATE_HOME}/zsh/history"
 HISTSIZE=50000
-SAVEHIST=10000
+SAVEHIST=50000                  # persist as much as we keep in memory
 setopt appendhistory share_history
+setopt extended_history        # record timestamp + duration per entry
+setopt hist_no_store           # don't save history/fc invocations themselves
 setopt hist_expire_dups_first  # Expire duplicates first
 setopt hist_ignore_dups        # Ignore consecutive duplicates
 setopt hist_ignore_all_dups    # Ignore all duplicates in history
@@ -99,6 +101,10 @@ setopt hist_ignore_space       # Ignore commands starting with space
 setopt hist_find_no_dups       # Don't show duplicates when searching
 setopt hist_reduce_blanks      # Remove extra blanks
 setopt hist_verify             # Verify history expansion
+
+# Keep noise (and obvious secrets) out of history. Prefix any command with a
+# space to skip it ad-hoc (hist_ignore_space).
+HISTORY_IGNORE='(ls|ll|ld|lt|l|cd|cd ..|..|...|.3|.4|.5|pwd|clear|exit|c|v|history|fg|bg|z *|* --password *|*token=*|*TOKEN=*|export *KEY*|export *SECRET*|export *TOKEN*)'
 
 
 
@@ -173,7 +179,7 @@ alias -g W='| wc'
 alias -g J='| jq'
 alias -g C='| tee /dev/tty | perl -pe "chomp if eof" | wl-copy'
 alias -g CC='| tee /dev/tty | (echo "❯ $ZSH_COMMAND"; perl -pe "chomp if eof") | wl-copy'
-preexec() { echo -ne '\e[2 q'; ZSH_COMMAND=$1 }  # block cursor before command + save command for CC alias
+preexec() { echo -ne '\e[6 q'; ZSH_COMMAND=$1 }  # beam cursor before command + save command for CC alias
 alias -g null='/dev/null'
 alias -g 2null='&>null'
 alias -g 2bg='&>null & disown'
@@ -204,6 +210,8 @@ function stow_dotfiles {
     source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 [[ -f /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]] && \
     source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+# Autosuggestions honor the same blocklist as history
+ZSH_AUTOSUGGEST_HISTORY_IGNORE="$HISTORY_IGNORE"
 
 # fzf integration - load last to ensure binding is not overwritten
 if (( $+commands[fzf] )); then
@@ -257,8 +265,4 @@ _install() {
     fi
 }
 complete -F _install install.sh
-
-# Load theme last
-source /usr/share/zsh-theme-powerlevel10k/powerlevel10k.zsh-theme
-[[ -f $ZDOTDIR/.p10k.zsh ]] && source $ZDOTDIR/.p10k.zsh
 
