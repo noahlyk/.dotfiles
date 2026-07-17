@@ -47,6 +47,7 @@ application/zip=org.gnome.Nautilus.desktop
 application/x-tar=org.gnome.Nautilus.desktop
 application/gzip=org.gnome.Nautilus.desktop
 x-scheme-handler/tonsite=org.telegram.desktop.desktop
+x-scheme-handler/claude-cli=claude-code-url-handler.desktop
 
 [Added Associations]
 x-scheme-handler/tonsite=org.telegram.desktop.desktop;

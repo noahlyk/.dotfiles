@@ -73,6 +73,7 @@ sudo_toggle() {
     zle end-of-line
 }
 zle -N sudo_toggle
+stty -ixon                # free Ctrl+S/Ctrl+Q from XON/XOFF flow control
 bindkey '^s' sudo_toggle  # Ctrl+S to toggle sudo
 
 # Vi mode cursor shapes
@@ -208,9 +209,13 @@ function stow_dotfiles {
 if (( $+commands[fzf] )); then
     __fzf_history__() {
         local selected
-        selected=$(fc -rl 1 | awk '!seen[$0]++' | tac | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//' | 
-            awk 'NR <= 20 && match($0, /^[a-zA-Z_][a-zA-Z0-9_-]*$/) { cmd = $0; if (system("command -v " cmd " >/dev/null 2>&1") != 0) next } { print }' | 
-            fzf --tac --no-sort --exact --query="$LBUFFER")
+        # fc -rl lists most-recent-first; strip the "<num>[*]" prefix, dedup keeping newest
+        selected=$(fc -rl 1 | sed -E 's/^[[:space:]]*[0-9]+\*?[[:space:]]*//' | awk '!seen[$0]++' |
+            fzf --no-sort --exact --query="$LBUFFER" \
+                --height=60% --layout=reverse --border=rounded --info=inline \
+                --prompt='  ' --pointer='▶' --color='pointer:cyan,prompt:cyan' \
+                --preview='echo {}' --preview-window='down:3:wrap:hidden' \
+                --bind='ctrl-/:toggle-preview,ctrl-y:accept')
         [[ -n $selected ]] && LBUFFER=$selected
         zle reset-prompt
     }

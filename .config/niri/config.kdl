@@ -80,7 +80,6 @@ overview {
 // This line starts waybar, a commonly used bar for Wayland compositors.
 spawn-at-startup "bash" "-c" "wl-paste --watch cliphist store &"
 spawn-at-startup "/usr/lib/mate-polkit/polkit-mate-authentication-agent-1"
-spawn-at-startup "chameleos"
 environment {
   XDG_CURRENT_DESKTOP "niri"
   QT_QPA_PLATFORM "wayland"
@@ -145,14 +144,22 @@ binds {
     //     spawn-sh "$HOME/Scripts/obs_ws.py toggle-recording-with-music"
     // }
 
-    Home { spawn "chamel" "toggle"; }
-    Ctrl+Z { spawn "chamel" "undo"; }
-    Delete { spawn "chamel" "clear-and-deactivate"; }
+    // wayscriber one-shot: no standby daemon. Home click-picks a monitor
+    // (via an invisible slurp point-select) and opens the overlay there.
+    // Pressing Home again closes it; pressing Home while the monitor-pick
+    // is still waiting for a click cancels the pick instead of opening.
+    // Once open, wayscriber grabs the keyboard itself, so undo/clear/color/
+    // etc. all work via its own shortcuts (Ctrl+Z, E, Escape) with no extra
+    // binds needed here. See ~/Scripts/wayscriber-toggle.sh.
+    Home { spawn-sh "$HOME/Scripts/wayscriber-toggle.sh"; }
 
 
     // === Application Launchers ===
     Mod+T hotkey-overlay-title="Open Terminal" {
         spawn "kitty" "sh" "-c" "tmux-leap goto ~" // || tmux new -A || tmux a || tmux"
+    }
+    Mod+Shift+C hotkey-overlay-title="Open Python Interpreter" {
+        spawn "kitty" "sh" "-c" "python -i"
     }
     Mod+Space hotkey-overlay-title="Application Launcher" {
         spawn "dms" "ipc" "call" "spotlight" "toggle";
@@ -193,26 +200,17 @@ binds {
     Ctrl+Alt+Delete { quit; }
 
     // === Audio Controls ===
-    XF86AudioRaiseVolume allow-when-locked=true {
-        spawn "dms" "ipc" "call" "audio" "increment" "3";
-    }
-    XF86AudioLowerVolume allow-when-locked=true {
-        spawn "dms" "ipc" "call" "audio" "decrement" "3";
-    }
-    XF86AudioMute allow-when-locked=true {
-        spawn "dms" "ipc" "call" "audio" "mute";
-    }
-    XF86AudioMicMute allow-when-locked=true {
-        spawn "dms" "ipc" "call" "audio" "micmute";
-    }
+    XF86AudioPlay { spawn "playerctl" "play-pause"; }
+    XF86AudioNext { spawn "playerctl" "next"; }
+    XF86AudioPrev { spawn "playerctl" "previous"; }
+    XF86AudioRaiseVolume allow-when-locked=true { spawn "dms" "ipc" "call" "audio" "increment" "3"; }
+    XF86AudioLowerVolume allow-when-locked=true { spawn "dms" "ipc" "call" "audio" "decrement" "3"; }
+    XF86AudioMute allow-when-locked=true { spawn "dms" "ipc" "call" "audio" "mute"; }
+    XF86AudioMicMute allow-when-locked=true { spawn "dms" "ipc" "call" "audio" "micmute"; }
 
     // === Brightness Controls ===
-    XF86MonBrightnessUp allow-when-locked=true {
-        spawn "dms" "ipc" "call" "brightness" "increment" "5" "";
-    }
-    XF86MonBrightnessDown allow-when-locked=true {
-        spawn "dms" "ipc" "call" "brightness" "decrement" "5" "";
-    }
+    XF86MonBrightnessUp allow-when-locked=true { spawn "dms" "ipc" "call" "brightness" "increment" "5" ""; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn "dms" "ipc" "call" "brightness" "decrement" "5" ""; }
 
     // === Window Management ===
     Mod+Q repeat=false { close-window; }
@@ -324,26 +322,14 @@ binds {
     Mod+Shift+9 hotkey-overlay-title="Move with Column 9" { move-column-to-index 9; }
 
     // === Numbered Workspaces: Nav (Mod+Ctrl+1-9) ===
-    Mod+Ctrl+1 { focus-workspace 1; }
-    Mod+Ctrl+2 { focus-workspace 2; }
-    Mod+Ctrl+3 { focus-workspace 3; }
-    Mod+Ctrl+4 { focus-workspace 4; }
-    Mod+Ctrl+5 { focus-workspace 5; }
-    Mod+Ctrl+6 { focus-workspace 6; }
-    Mod+Ctrl+7 { focus-workspace 7; }
-    Mod+Ctrl+8 { focus-workspace 8; }
-    Mod+Ctrl+9 { focus-workspace 9; }
+    Mod+Ctrl+1 { focus-monitor "DP-1"; }
+    Mod+Ctrl+2 { focus-monitor "DP-2"; }
+    Mod+Ctrl+3 { focus-monitor "HDMI-A-1"; }
 
     // === Numbered Workspaces: Move Column Across Workspaces (Mod+Ctrl+Shift+1-9) ===
-    Mod+Ctrl+Shift+1 { move-column-to-workspace 1; }
-    Mod+Ctrl+Shift+2 { move-column-to-workspace 2; }
-    Mod+Ctrl+Shift+3 { move-column-to-workspace 3; }
-    Mod+Ctrl+Shift+4 { move-column-to-workspace 4; }
-    Mod+Ctrl+Shift+5 { move-column-to-workspace 5; }
-    Mod+Ctrl+Shift+6 { move-column-to-workspace 6; }
-    Mod+Ctrl+Shift+7 { move-column-to-workspace 7; }
-    Mod+Ctrl+Shift+8 { move-column-to-workspace 8; }
-    Mod+Ctrl+Shift+9 { move-column-to-workspace 9; }
+    Mod+Ctrl+Shift+1 { move-column-to-monitor "DP-1"; }
+    Mod+Ctrl+Shift+2 { move-column-to-monitor "DP-2"; }
+    Mod+Ctrl+Shift+3 { move-column-to-monitor "HDMI-A-1"; }
 
     // === Column Management ===
     Mod+BracketLeft  { consume-or-expel-window-left; }
@@ -380,6 +366,7 @@ binds {
     Shift+Print {
         spawn-sh "$HOME/Scripts/niri-ocr.sh"
     }
+
 
     // === System Controls ===
     Mod+Escape allow-inhibiting=false { toggle-keyboard-shortcuts-inhibit; }

@@ -48,3 +48,13 @@ package-lock.json
 # KDE Connect crypto keys
 .config/kdeconnect/privateKey.pem
 .config/kdeconnect/certificate.pem
+
+# Runtime/telemetry state
+.config/google-chrome-for-testing/
+.config/nextjs-nodejs/
+.config/uv/uv-receipt.json
+.config/zsh/.zcalc_history
+
+# Nested AUR/PKGBUILD git clones under niri
+.config/niri/wayscriber/
+.config/niri/wlrctl/

@@ -36,9 +36,6 @@
         KC_SCLN: MT(KC_SCLN, KC_RGUI),
         
         KC_LALT: TO("nav"),
-        // KC_LALT: DT(TO("nav"), KC_LALT),
-        // KC_RALT: DT(KC_RALT, KC_A),
-        
         KC_RSFT: TO("soundboard"),
 
         KC_CAPS: KC_ESC,
@@ -71,8 +68,8 @@
                 KC_K: KC_UP,
                 KC_L: KC_RGHT,
 
-                KC_U: KC_PGUP,
-                KC_D: KC_PGDN,
+                KC_I: KC_PGUP,
+                KC_U: KC_PGDN,
 
                 KC_BSPC: CMD("/home/fib/.config/keymux/password.sh"),
             },
