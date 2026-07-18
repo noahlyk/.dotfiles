@@ -108,17 +108,4 @@ return {
       })
     end
   },
-  {
-    "catppuccin/nvim",
-    name = "catppuccin",
-    lazy = true,
-    opts = {
-      transparent_background = true,
-    },
-  },
-  {
-    "folke/tokyonight.nvim",
-    lazy = true,
-    opts = {},
-  },
 }

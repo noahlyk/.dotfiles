@@ -101,8 +101,8 @@ return {
       vim.keymap.set("n", "gri", vim.lsp.buf.implementation, { desc = "LSP: Go to implementation" })
       vim.keymap.set("n", "<leader>D", vim.lsp.buf.type_definition, { desc = "LSP: Type definition" })
       vim.keymap.set("n", "gO", vim.lsp.buf.document_symbol, { desc = "LSP: Document symbols" })
-      vim.keymap.set("n", "<leader>ds", require("telescope.builtin").lsp_document_symbols, { desc = "LSP: Document symbols" })
-      vim.keymap.set("n", "<leader>ws", require("telescope.builtin").lsp_dynamic_workspace_symbols,
+      vim.keymap.set("n", "<leader>ds", function() Snacks.picker.lsp_symbols() end, { desc = "LSP: Document symbols" })
+      vim.keymap.set("n", "<leader>ws", function() Snacks.picker.lsp_workspace_symbols() end,
         { desc = "LSP: Workspace symbols" })
       vim.keymap.set("n", "K", vim.lsp.buf.hover, { desc = "LSP: Hover documentation" })
       vim.keymap.set("n", "<C-k>", vim.lsp.buf.signature_help, { desc = "LSP: Signature help" })

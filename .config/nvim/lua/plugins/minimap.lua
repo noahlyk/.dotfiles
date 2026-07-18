@@ -1,7 +1,7 @@
 return {
   "Isrothy/neominimap.nvim",
   version = "v3.x.x",
-  lazy = false, -- NOTE: NO NEED to Lazy load
+  lazy = true, -- do NOT load at startup; the keys below lazy-trigger the load
   -- Optional. You can also set your own keybindings
   keys = {
     -- Global Minimap Controls
@@ -33,15 +33,19 @@ return {
     { "<leader>nu", "<cmd>Neominimap Unfocus<cr>", desc = "Unfocus minimap" },
     { "<leader>ns", "<cmd>Neominimap ToggleFocus<cr>", desc = "Switch focus on minimap" },
   },
+  -- init runs at startup (before the plugin loads) — neominimap reads
+  -- vim.g.neominimap at load time, so auto_enable MUST be set here, not in config.
+  -- Just setting a variable is cheap and does NOT load the plugin.
   init = function()
-    -- The following options are recommended when layout == "float"
-    vim.opt.wrap = false
-    vim.opt.sidescrolloff = 36 -- Set a large value
-
-    --- Put your configuration here
     ---@type Neominimap.UserConfig
     vim.g.neominimap = {
-      auto_enable = true,
+      auto_enable = false, -- stay off until the first <leader>nm toggles it on
     }
+  end,
+  -- config runs once the plugin actually loads (on first <leader>nm) — display
+  -- tweaks only relevant while the minimap float is visible.
+  config = function()
+    vim.opt.wrap = false
+    vim.opt.sidescrolloff = 36 -- recommended when layout == "float"
   end,
 }

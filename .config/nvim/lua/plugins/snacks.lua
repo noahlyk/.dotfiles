@@ -16,6 +16,7 @@ return {
     notifier = {
       enabled = true,
       timeout = 3000,
+      top_down = false, -- stack from the bottom -> notifications sit bottom-right
     },
     quickfile = { enabled = true },
     scope = { enabled = true },

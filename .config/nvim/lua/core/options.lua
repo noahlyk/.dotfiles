@@ -2,7 +2,7 @@ local o = vim.o
 local opt = vim.opt
 
 vim.g.mapleader = ' '
-vim.g.localmapleader = ' '
+vim.g.maplocalleader = ' '  -- was 'localmapleader' (not a real option) -> localleader was unset
 
 vim.filetype.add({ extension = { ron = "ron" } })
 
@@ -15,6 +15,24 @@ o.expandtab = true
 o.smartindent = true
 
 o.wrap = false
+
+-- search
+o.ignorecase = true
+o.smartcase = true
+
+-- splits open in a sane direction
+o.splitright = true
+o.splitbelow = true
+
+-- live :substitute preview
+o.inccommand = "split"
+
+-- always-on gutter (stops text jitter from gitsigns/diagnostics) + current-line highlight
+o.signcolumn = "yes"
+o.cursorline = true
+
+-- prompt to save instead of erroring on :q with unsaved changes
+o.confirm = true
 
 o.swapfile = false
 o.backup = false
