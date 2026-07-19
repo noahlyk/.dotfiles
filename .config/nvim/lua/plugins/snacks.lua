@@ -20,7 +20,7 @@ return {
     },
     quickfile = { enabled = true },
     scope = { enabled = true },
-    statuscolumn = { enabled = true },
+    statuscolumn = { enabled = false }, -- bare native line numbers, no sign/fold gutter
     words = { enabled = true },
   },
 

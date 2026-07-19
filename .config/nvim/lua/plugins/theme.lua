@@ -46,52 +46,9 @@ vim.api.nvim_create_autocmd('VimEnter', {
 })
 
 
-function _G.update_status_column()
-  if not ( vim.wo.number or vim.wo.relativenumber ) then
-    return "%s" -- do nothing
-  end
-  local line_number = vim.v.lnum
-  local current_line = vim.fn.line('.')
-  if line_number == current_line then
-    if not vim.wo.number then
-      line_number = 0
-    end
-    if vim.wo.relativenumber then
-      return "%s%#CursorLineNr# " .. line_number .. "❯%#NONE# "
-    else
-      return "%s%#CursorLineNr# :" .. line_number .. "❯%#NONE# "
-    end
-  end
-  if not vim.wo.relativenumber then
-    return "%#LineNr#%s:" .. line_number
-  end
-  local relative_number = line_number - current_line
-  if relative_number < 0 then
-    return "%#LineNr#%s" .. math.abs(relative_number) .. "k "
-  elseif relative_number > 0 then
-    return "%#LineNr#%s" .. math.abs(relative_number) .. "j "
-  end
-end
-
+-- plain native hybrid line numbers; no custom statuscolumn renderer
 vim.o.number = true
 vim.o.relativenumber = true
--- vim.cmd.colorscheme "catppuccin"
-
-vim.api.nvim_create_autocmd("VimEnter", {
-  callback = function()
-    vim.defer_fn(function()
-      vim.o.statuscolumn = "%{%v:lua.update_status_column()%}"
-    end, 0)
-  end,
-})
-
-vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-  callback = function()
-    if not vim.wo.relativenumber then
-      vim.wo.statuscolumn = vim.wo.statuscolumn
-    end
-  end,
-})
 
 return {
   {

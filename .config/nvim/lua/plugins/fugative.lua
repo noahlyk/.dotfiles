@@ -231,11 +231,9 @@ local function attach(buf, win)
 end
 
 local function open()
-  -- fugitive opens its own window; the `botright vertical` modifier makes it a
-  -- right-side sidebar (one window, not a stray extra split).
-  vim.cmd("botright vertical " .. FUGITIVE_LOG)
+  -- plain vertical split of the current window (not a pinned side sidebar)
+  vim.cmd("vertical " .. FUGITIVE_LOG)
   local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_width(win, math.min(80, math.floor(vim.o.columns * 0.4)))
   attach(vim.api.nvim_get_current_buf(), win)
 end
 
