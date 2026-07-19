@@ -22,7 +22,6 @@
   "mangoLayoutGapsOverride": -1,
   "mangoLayoutRadiusOverride": -1,
   "mangoLayoutBorderSize": -1,
-  "use24HourClock": false,
   "showSeconds": true,
   "padHours12Hour": false,
   "useFahrenheit": true,
@@ -371,7 +370,6 @@
   "maxFprintTries": 15,
   "enableU2f": false,
   "u2fMode": "or",
-  "lockScreenActiveMonitor": "all",
   "lockScreenInactiveColor": "#000000",
   "lockScreenNotificationMode": 1,
   "hideBrightnessSlider": false,
@@ -678,5 +676,7 @@
     }
   },
   "launcherPluginOrder": [],
-  "configVersion": 5
+  "configVersion": 12,
+  "barElevationEnabled": false,
+  "clockFormat": "12h"
 }

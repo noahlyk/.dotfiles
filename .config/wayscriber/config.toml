@@ -127,7 +127,7 @@ enabled = true
 
 [ui.toolbar]
 layout_mode = "regular"
-top_pinned = true
+top_pinned = false
 side_pinned = false
 use_icons = true
 scale = 1.0
