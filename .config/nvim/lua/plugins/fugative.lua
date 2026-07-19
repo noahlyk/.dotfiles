@@ -231,8 +231,8 @@ local function attach(buf, win)
 end
 
 local function open()
-  -- plain vertical split of the current window (not a pinned side sidebar)
-  vim.cmd("vertical " .. FUGITIVE_LOG)
+  -- plain horizontal split of the current window (not a pinned side sidebar)
+  vim.cmd("horizontal " .. FUGITIVE_LOG)
   local win = vim.api.nvim_get_current_win()
   attach(vim.api.nvim_get_current_buf(), win)
 end
