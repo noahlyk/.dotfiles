@@ -212,8 +212,8 @@ end
 local function attach(buf, win)
   M.buf, M.win = buf, win
   vim.b[buf].is_git_log = true
-  vim.wo[win].number = false
-  vim.wo[win].relativenumber = false
+  vim.wo[win].number = true
+  vim.wo[win].relativenumber = true
   vim.wo[win].wrap = false
   vim.wo[win].signcolumn = "no"
   vim.wo[win].statuscolumn = ""
