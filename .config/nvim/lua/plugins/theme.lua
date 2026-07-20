@@ -9,7 +9,10 @@ local function set_custom_highlights()
   vim.api.nvim_set_hl(0, "@comment", { fg = dark_gray })
   vim.api.nvim_set_hl(0, "LspInlayHint", { fg = dark_gray, bg = "NONE" })
 
-  vim.api.nvim_set_hl(0, "LineNr", { fg = dark_gray })
+  -- LineNr needs more contrast than comments/inlay hints: dark_gray on a
+  -- transparent (terminal) bg is ~2:1, which makes the digits unreadable.
+  local line_nr_gray = "#8a8a8a"
+  vim.api.nvim_set_hl(0, "LineNr", { fg = line_nr_gray })
   vim.api.nvim_set_hl(0, "CursorLineNr", { fg = "#FF9E3B", bold = true })
 
   local async_color = "#FF1493" -- Hot pink
