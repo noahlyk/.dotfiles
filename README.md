@@ -5,7 +5,7 @@
 - run these commands:
 ```
 sudo pacman -S stow git-crypt gnupg
-git clone https://github.com/fibsussy/.dotfiles ~/.dotfiles
+git clone https://github.com/noahlyk/.dotfiles ~/.dotfiles
 gpg --decrypt gpg_key.asc.gpg > gpg_key.asc
 gpg --import gpg_key.asc
 git-crypt unlock

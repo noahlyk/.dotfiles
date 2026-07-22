@@ -1,6 +1,6 @@
 return {
   {
-    "fibsussy/oil.nvim",
+    "noahlyk/oil.nvim",
     lazy = false,
     keys = {
       { "<leader>e", "<cmd> Oil <cr>", desc = "Open Oil (explorer)" },
@@ -54,7 +54,7 @@ return {
 
   -- {
   --   "malewicz1337/oil-git.nvim",
-  --   dependencies = { "fibsussy/oil.nvim" },
+  --   dependencies = { "noahlyk/oil.nvim" },
   -- },
 
 }
