@@ -358,6 +358,49 @@ local function maybe_stop()
   end
 end
 
+-- ==================================================== checkout under cursor ====
+-- fugitive's `coo` resolves the commit HASH on the line, so hovering a branch name
+-- still detaches HEAD. This resolves the *ref token* under the cursor first: a local
+-- branch checks out attached; a remote-tracking ref (origin/x) DWIMs to its local
+-- tracking branch; otherwise it falls back to the line's commit hash (detached, the
+-- same as fugitive's coo).
+local function ref_exists(ref)
+  vim.fn.system({ "git", "-C", M.root or vim.fn.getcwd(), "rev-parse", "--verify", "--quiet", ref })
+  return vim.v.shell_error == 0
+end
+
+local function token_under_cursor(line, col) -- col is 1-based
+  local i = 1
+  while true do
+    local s, e = line:find("[%w%._/-]+", i)
+    if not s then return nil end
+    if col >= s and col <= e then return line:sub(s, e) end
+    i = e + 1
+  end
+end
+
+local function checkout_under_cursor()
+  local line = vim.api.nvim_get_current_line()
+  local col = vim.api.nvim_win_get_cursor(0)[2] + 1
+  local tok = token_under_cursor(line, col)
+  local target
+  if tok and tok ~= "HEAD" and tok ~= "tag:" then
+    if ref_exists("refs/heads/" .. tok) then
+      target = tok                     -- local branch → attach to it
+    elseif ref_exists("refs/remotes/" .. tok) then
+      target = tok:gsub("^[^/]+/", "") -- origin/x → x (switch to / create tracking branch)
+    elseif ref_exists("refs/tags/" .. tok) then
+      target = tok                     -- tag → checkout (detached, as expected)
+    end
+  end
+  target = target or line:match("(%x%x%x%x%x%x%x+)") -- else the commit hash (detached, like coo)
+  if not target then
+    vim.notify("git log: nothing checkout-able under the cursor", vim.log.levels.WARN)
+    return
+  end
+  vim.cmd("Git checkout " .. target) -- fugitive checkout → fires FugitiveChanged → live refresh
+end
+
 -- ============================================================ lifecycle ========
 local function close()
   if win_valid() then
@@ -378,6 +421,11 @@ local function attach(buf, win)
   vim.wo[win].cursorline = true
   -- q closes the log (fugitive's other maps: ri, cc, rr, ce, <CR>, ... still work)
   vim.keymap.set("n", "q", close, { buffer = buf, silent = true, desc = "Close git log" })
+  -- coo: attach to the BRANCH under the cursor when hovering a ref name; else the
+  -- commit under the cursor (detached) — unlike fugitive's coo, which always takes
+  -- the line's hash and so can't check out a branch by name in this buffer.
+  vim.keymap.set("n", "coo", checkout_under_cursor,
+    { buffer = buf, silent = true, desc = "Checkout ref/commit under cursor" })
 
   paint()           -- fugitive already filled the buffer; just color it
   ensure_watching() -- subscribe to the repo; refreshes flow from fs events
