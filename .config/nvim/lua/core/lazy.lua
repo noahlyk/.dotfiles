@@ -23,6 +23,16 @@ require("lazy").setup({
     enabled = false,
     notify = false,
   },
+  -- Don't watch config files for changes at startup (removes the "config changed,
+  -- reloading" popups and a small amount of startup work).
+  change_detection = {
+    enabled = false,
+  },
+  -- No plugin here uses luarocks (image.nvim runs magick_cli with build=false), so
+  -- skip lazy's rocks/hererocks bootstrap entirely.
+  rocks = {
+    enabled = false,
+  },
   performance = {
     rtp = {
       disabled_plugins = {
