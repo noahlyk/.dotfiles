@@ -1,11 +1,15 @@
 -- Git-log window: fugitive's own interactive log buffer (so ri / cc / rr / ce /
 -- <CR> and friends keep working), plus toggle, live auto-refresh, and real colors.
 --
--- Live-refresh is event-driven: we subscribe to the repo's .git directory with a
--- libuv filesystem watcher (vim.uv.new_fs_event) and refresh on change. No polling,
+-- Live-refresh is event-driven: we subscribe to the repo's .git directory with
+-- libuv filesystem watchers (vim.uv.new_fs_event) and refresh on change. No polling,
 -- no signature diffing, no fixed-delay guessing. The old two-timer poll was the
 -- source of the "sometimes it just stops updating" bug (its self-destruct-on-
 -- transient-invalid callback killed the timer permanently). See git history.
+--
+-- inotify isn't recursive on Linux, so we watch the git dir top-level (HEAD, index,
+-- packed-refs, FETCH_HEAD...) AND every directory under refs/ (loose refs live in
+-- the leaves, e.g. refs/remotes/origin/main — which is all a `git push` rewrites).
 
 local FUGITIVE_LOG = "Git log --oneline --graph --decorate --all"      -- opens the buffer
 local LOG_CMD = { "git", "log", "--oneline", "--graph", "--decorate", "--all" }
@@ -16,6 +20,8 @@ local M = {
   buf = nil,
   win = nil,
   root = nil,      -- repo dir we run git in / resolved the watch from
+  gitdirs = nil,   -- resolved base git dir(s): --absolute-git-dir (+ --git-common-dir)
+  watched = nil,   -- set { [abs dir] = true } of directories currently armed
   watchers = nil,  -- list of active fs_event handles (nil = not watching)
   debounce = nil,  -- reusable one-shot uv_timer
   fallback = nil,  -- slow poll timer, only when watchers can't arm
@@ -26,7 +32,7 @@ local ns = vim.api.nvim_create_namespace("gitlog")
 local re_hash = vim.regex([[\<\x\{7,40}\>]])
 
 -- forward declarations (these functions reference each other)
-local ensure_watching, schedule_refresh, tick, refresh_log
+local ensure_watching, rearm, schedule_refresh, tick, refresh_log
 local on_fs_event, arm, stop_watchers, start_fallback, stop_fallback
 
 local function win_valid()
@@ -170,8 +176,10 @@ local function any_target_open()
 end
 
 -- The single entry point every trigger funnels into. Refreshes whichever of the
--- log / status windows is open.
+-- log / status windows is open. rearm() first, cheaply, so a push/branch that
+-- created a brand-new refs/ subdir (new remote or namespace) gets a watch on it.
 function tick()
+  rearm()
   if log_open() then refresh_log() end
   status_refresh()
 end
@@ -191,9 +199,9 @@ end
 -- and kick the debounce timer. No vim.api / vim.system allowed here.
 function on_fs_event(err)
   if err then
-    -- watch may have gone stale (rare: .git dir itself removed) — re-resolve & re-arm
+    -- watch may have gone stale (rare: a watched dir removed) — re-resolve & re-arm
     vim.schedule(function()
-      M.watchers = nil
+      M.watchers, M.watched, M.gitdirs = nil, nil, nil
       ensure_watching()
     end)
     return
@@ -227,8 +235,9 @@ function start_fallback()
   end))
 end
 
--- Arm one fs_event per resolved .git directory. We watch the *directory* (not files)
--- so git's atomic rename (index.lock -> index) can't leave us watching a dead inode.
+-- Arm one fs_event per directory. We watch *directories* (not files) so git's
+-- atomic rename (index.lock -> index, main.lock -> main) can't leave us watching a
+-- dead inode. Returns true if at least one watch armed.
 function arm(dirs)
   stop_watchers()
   M.watchers = {}
@@ -251,6 +260,51 @@ function arm(dirs)
     M.watchers = nil
     start_fallback()
   end
+  return ok_any
+end
+
+-- Every directory to watch for a git dir: the dir itself (HEAD/index/packed-refs/
+-- FETCH_HEAD) plus every subdirectory of refs/ (loose refs live in the leaves; a
+-- push only writes refs/remotes/<remote>/<branch>, nested 2+ deep). logs/ is
+-- skipped — reflogs don't affect `git log --all` output.
+local function collect_dirs(gitdir, acc)
+  acc[gitdir] = true
+  local function walk(dir)
+    acc[dir] = true
+    local req = vim.uv.fs_scandir(dir)
+    if not req then return end
+    while true do
+      local name, typ = vim.uv.fs_scandir_next(req)
+      if not name then break end
+      local child = dir .. "/" .. name
+      if typ == "directory" or (typ == nil and (vim.uv.fs_stat(child) or {}).type == "directory") then
+        walk(child)
+      end
+    end
+  end
+  local refs = gitdir .. "/refs"
+  if vim.uv.fs_stat(refs) then walk(refs) end
+end
+
+local function dirset_equal(a, b)
+  if not a or not b then return false end
+  for k in pairs(a) do if not b[k] then return false end end
+  for k in pairs(b) do if not a[k] then return false end end
+  return true
+end
+
+-- Recompute the full set of dirs to watch and (re)arm only if it changed — so the
+-- per-refresh call is a cheap refs/ walk with no watcher churn in the common case,
+-- but a newly-created refs/ subdir (first push to a new remote, new namespace) gets
+-- picked up automatically.
+function rearm()
+  if not M.gitdirs then return end
+  local acc = {}
+  for _, g in ipairs(M.gitdirs) do collect_dirs(g, acc) end
+  if dirset_equal(acc, M.watched) then return end
+  local list = {}
+  for d in pairs(acc) do table.insert(list, d) end
+  M.watched = arm(list) and acc or nil -- clear on failure so the next tick retries
 end
 
 local function absolutize(p, base)
@@ -261,34 +315,36 @@ end
 
 -- Resolve the repo's git dir(s) async, then arm watchers. Watch the common dir
 -- (shared refs/tags/packed-refs for --all) and, in a linked worktree, also the
--- per-worktree dir (its HEAD/index/reflog). In a normal repo the two are equal ->
--- one watcher.
+-- per-worktree dir (its HEAD/index). In a normal repo the two are equal -> one base.
 function ensure_watching()
   if not any_target_open() then return end
   local root = vim.fn.getcwd()
   if M.watchers and M.root == root then return end -- already watching this repo
   M.root = root
   stop_watchers()
+  M.gitdirs, M.watched = nil, nil
   vim.system(
     { "git", "-C", root, "rev-parse", "--absolute-git-dir", "--git-common-dir" },
     { text = true },
     vim.schedule_wrap(function(obj)
       if obj.code ~= 0 then return end -- not a git repo; nothing to watch
       local parts = vim.split(obj.stdout, "\n", { trimempty = true })
-      local seen, dirs = {}, {}
+      local seen, gd = {}, {}
       for _, p in ipairs({ parts[1], parts[2] }) do
         local abs = p and absolutize(p, root)
         if abs and not seen[abs] then
           seen[abs] = true
-          table.insert(dirs, abs)
+          table.insert(gd, abs)
         end
       end
-      if #dirs > 0 then arm(dirs) end
+      if #gd == 0 then return end
+      M.gitdirs = gd
+      rearm()
     end)
   )
 end
 
--- Tear the watcher down once neither the log nor the status window is open.
+-- Tear everything down once neither the log nor the status window is open.
 local function maybe_stop()
   if not any_target_open() then
     stop_watchers()
@@ -298,7 +354,7 @@ local function maybe_stop()
       if not M.debounce:is_closing() then M.debounce:close() end
       M.debounce = nil
     end
-    M.root = nil
+    M.root, M.gitdirs, M.watched = nil, nil, nil
   end
 end
 
@@ -385,8 +441,7 @@ end
 local aug = vim.api.nvim_create_augroup("GitLogWindow", { clear = true })
 
 -- fugitive fires this on checkout/commit/rebase/etc done inside nvim — an instant
--- trigger (also catches branch create/delete label changes the top-level .git watch
--- can miss). Funnels into the same debounced refresh as the fs watcher.
+-- trigger. Funnels into the same debounced refresh as the fs watcher.
 vim.api.nvim_create_autocmd("User", {
   group = aug,
   pattern = "FugitiveChanged",
@@ -398,7 +453,7 @@ vim.api.nvim_create_autocmd("User", {
   end,
 })
 
--- Belt-and-suspenders + recovery: on focus regained (commit from another terminal)
+-- Belt-and-suspenders + recovery: on focus regained (a change from another terminal)
 -- re-arm the watcher if it died and refresh.
 vim.api.nvim_create_autocmd("FocusGained", {
   group = aug,
@@ -416,7 +471,7 @@ vim.api.nvim_create_autocmd("DirChanged", {
   callback = function()
     if any_target_open() then
       stop_watchers()
-      M.watchers, M.root = nil, nil
+      M.watchers, M.root, M.gitdirs, M.watched = nil, nil, nil, nil
       ensure_watching()
       schedule_refresh()
     end
