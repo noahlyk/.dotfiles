@@ -11,6 +11,9 @@ return {
   {
     'nvim-treesitter/nvim-treesitter',
     build = ":TSUpdate",
+    -- Load on first real file instead of at startup. An empty launch (Oil) needs
+    -- no parser, so this keeps treesitter off the startup/first-paint path.
+    event = { "BufReadPost", "BufNewFile" },
     opts = {
       ensure_installed = {
         'go', 'lua', 'python', 'rust', 'typescript', 'regex',

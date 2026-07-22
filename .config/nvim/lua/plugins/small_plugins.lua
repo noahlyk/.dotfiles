@@ -65,6 +65,10 @@ return {
   {
     "3rd/image.nvim",
     build = false, -- so that it doesn't build the rock https://github.com/3rd/image.nvim/issues/91#issuecomment-2453430239
+    -- Was a start plugin: it loaded eagerly AND probed the terminal for graphics
+    -- support at startup (a likely cause of Oil feeling laggy on launch). VeryLazy
+    -- lets Oil paint first, then image.nvim initializes right after.
+    event = "VeryLazy",
     opts = { processor = "magick_cli", }
   },
 }
