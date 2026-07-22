@@ -1,22 +1,33 @@
 -- Git-log window: fugitive's own interactive log buffer (so ri / cc / rr / ce /
--- <CR> and friends keep working), plus toggle, auto-refresh, and real colors.
+-- <CR> and friends keep working), plus toggle, live auto-refresh, and real colors.
+--
+-- Live-refresh is event-driven: we subscribe to the repo's .git directory with a
+-- libuv filesystem watcher (vim.uv.new_fs_event) and refresh on change. No polling,
+-- no signature diffing, no fixed-delay guessing. The old two-timer poll was the
+-- source of the "sometimes it just stops updating" bug (its self-destruct-on-
+-- transient-invalid callback killed the timer permanently). See git history.
 
-local FUGITIVE_LOG = "Git log --oneline --graph --decorate --all" -- opens the buffer
-local SHELL_LOG = "git log --oneline --graph --decorate --all"    -- used to refresh in place
-local SIG_CMD = "git rev-parse HEAD --all 2>/dev/null"            -- cheap change signature
-local IDLE_MS = 1000                                              -- background poll for external changes
-local WATCH_MS = 40                                               -- fast poll while a change lands
+local FUGITIVE_LOG = "Git log --oneline --graph --decorate --all"      -- opens the buffer
+local LOG_CMD = { "git", "log", "--oneline", "--graph", "--decorate", "--all" }
+local DEBOUNCE_MS = 60   -- coalesce the burst of fs events one git op fires into one refresh
+local FALLBACK_MS = 5000 -- slow poll, used ONLY if the fs watcher can't arm (e.g. inotify exhaustion)
 
-local M = { buf = nil, win = nil, timer = nil, watcher = nil }
+local M = {
+  buf = nil,
+  win = nil,
+  root = nil,      -- repo dir we run git in / resolved the watch from
+  watchers = nil,  -- list of active fs_event handles (nil = not watching)
+  debounce = nil,  -- reusable one-shot uv_timer
+  fallback = nil,  -- slow poll timer, only when watchers can't arm
+  job_running = false,
+  job_pending = false,
+}
 local ns = vim.api.nvim_create_namespace("gitlog")
 local re_hash = vim.regex([[\<\x\{7,40}\>]])
-local last_sig = nil
 
--- Cheap signature of HEAD + all ref shas; changes on any checkout/commit/rebase/
--- branch move. Fast even on large repos (unlike the full `git log`).
-local function git_sig()
-  return table.concat(vim.fn.systemlist(SIG_CMD), "\n")
-end
+-- forward declarations (these functions reference each other)
+local ensure_watching, schedule_refresh, tick, refresh_log
+local on_fs_event, arm, stop_watchers, start_fallback, stop_fallback
 
 local function win_valid()
   return M.win and vim.api.nvim_win_is_valid(M.win)
@@ -26,8 +37,9 @@ local function buf_valid()
   return M.buf and vim.api.nvim_buf_is_valid(M.buf)
 end
 
--- Colors: mirror git's own log palette so HEAD / branches / remotes / tags are
--- each distinct instead of all white. Re-asserted on every paint because a
+-- ===================================================================== colors ==
+-- Mirror git's own log palette so HEAD / branches / remotes / tags are each
+-- distinct instead of all white. Re-asserted on every paint because a
 -- colorscheme's `hi clear` wipes custom groups.
 local function set_highlights()
   local hl = vim.api.nvim_set_hl
@@ -94,71 +106,9 @@ local function paint()
   end
 end
 
--- Re-run the log in place: keeps the same fugitive buffer (so its maps survive)
--- but pulls in any new commits, then repaints.
-local function refresh()
-  if not buf_valid() then return end
-  local cursor = win_valid() and vim.api.nvim_win_get_cursor(M.win) or nil
-  local lines = vim.fn.systemlist(SHELL_LOG)
-  local mod = vim.bo[M.buf].modifiable
-  vim.bo[M.buf].modifiable = true
-  vim.api.nvim_buf_set_lines(M.buf, 0, -1, false, lines)
-  vim.bo[M.buf].modifiable = mod
-  paint()
-  if cursor and win_valid() then
-    cursor[1] = math.min(cursor[1], math.max(1, #lines))
-    pcall(vim.api.nvim_win_set_cursor, M.win, cursor)
-  end
-  last_sig = git_sig()
-end
-
--- Refresh only if git state actually changed (keeps the idle poll cheap — the full
--- `git log` runs only when there's something new).
-local function poll_refresh()
-  if win_valid() and git_sig() ~= last_sig then refresh() end
-end
-
-local function stop_watcher()
-  if M.watcher then
-    M.watcher:stop()
-    if not M.watcher:is_closing() then M.watcher:close() end
-    M.watcher = nil
-  end
-end
-
--- Fixed delays can't catch a change on a big repo (checkout settles after them).
--- Instead poll the cheap signature until it differs from the pre-event state, then
--- refresh once — instant the moment the operation lands, whatever its duration.
-local function watch_for_change()
-  if not win_valid() then return end
-  local base = last_sig or git_sig()
-  stop_watcher()
-  local tries = 0
-  M.watcher = vim.uv.new_timer()
-  M.watcher:start(WATCH_MS, WATCH_MS, vim.schedule_wrap(function()
-    tries = tries + 1
-    if not win_valid() then stop_watcher(); return end
-    if git_sig() ~= base then
-      refresh()
-      stop_watcher()
-    elseif tries >= 75 then -- ~3s safety cap
-      stop_watcher()
-    end
-  end))
-end
-
--- staggered reloads for the status buffer (cheap :edit); tail long enough to catch
--- a big-repo checkout settling.
-local function status_burst(fn)
-  vim.schedule(fn)
-  for _, ms in ipairs({ 50, 150, 350, 700, 1200 }) do
-    vim.defer_fn(fn, ms)
-  end
-end
-
--- === fugitive status window (<leader>gs): same toggle + live-refresh as the log ===
--- Status is fugitive's own `filetype=fugitive` buffer; it doesn't self-refresh on
--- FugitiveChanged, but a silent :edit reloads it in place.
+-- ============================================================ status window ====
+-- <leader>gs is fugitive's own `filetype=fugitive` buffer; it doesn't self-refresh
+-- on FugitiveChanged, but a silent :edit reloads it in place.
 local function status_win()
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(b) and vim.bo[b].filetype == "fugitive" then
@@ -177,36 +127,188 @@ local function status_refresh()
   pcall(vim.api.nvim_win_set_cursor, wn, cur)
 end
 
--- <leader>gs: close if focused on it, jump if open elsewhere, open otherwise
-function M.status_toggle()
-  local wn = status_win()
-  if wn then
-    if vim.api.nvim_get_current_win() == wn then
-      pcall(vim.api.nvim_win_close, wn, true)
-    else
-      vim.api.nvim_set_current_win(wn)
-      status_refresh()
-    end
+-- ================================================================= refresh =====
+-- Re-run the log async and rewrite the same fugitive buffer in place (so its maps
+-- survive), then repaint. vim.system keeps the UI responsive even on huge repos —
+-- the old synchronous vim.fn.systemlist was itself a source of jank/lockups.
+function refresh_log()
+  if not buf_valid() then return end
+  if M.job_running then M.job_pending = true; return end -- coalesce overlapping runs
+  M.job_running = true
+  local cursor = win_valid() and vim.api.nvim_win_get_cursor(M.win) or nil
+  vim.system(LOG_CMD, { cwd = M.root or vim.fn.getcwd(), text = true }, function(obj)
+    vim.schedule(function()
+      M.job_running = false
+      if buf_valid() then
+        local out = (obj.code == 0 and obj.stdout) or ""
+        local lines = vim.split(out, "\n", { trimempty = true })
+        if #lines == 0 then lines = { "" } end -- fresh repo w/ no commits, etc.
+        local mod = vim.bo[M.buf].modifiable
+        vim.bo[M.buf].modifiable = true
+        vim.api.nvim_buf_set_lines(M.buf, 0, -1, false, lines)
+        vim.bo[M.buf].modifiable = mod
+        paint()
+        if cursor and win_valid() then
+          cursor[1] = math.min(cursor[1], math.max(1, #lines))
+          pcall(vim.api.nvim_win_set_cursor, M.win, cursor)
+        end
+      end
+      if M.job_pending then -- something changed while we were running: run once more
+        M.job_pending = false
+        refresh_log()
+      end
+    end)
+  end)
+end
+
+local function log_open()
+  return win_valid() and buf_valid()
+end
+
+local function any_target_open()
+  return log_open() or status_win() ~= nil
+end
+
+-- The single entry point every trigger funnels into. Refreshes whichever of the
+-- log / status windows is open.
+function tick()
+  if log_open() then refresh_log() end
+  status_refresh()
+end
+
+-- Debounce: one reusable one-shot timer; each trigger stops+restarts it so a burst
+-- of fs events (one git op fires ~5-10) collapses into a single refresh. The timer
+-- op itself is libuv-native (safe to call from an fs_event fast-context callback);
+-- all Vim work happens in the schedule-wrapped timer callback.
+function schedule_refresh()
+  if not M.debounce then M.debounce = vim.uv.new_timer() end
+  M.debounce:stop()
+  M.debounce:start(DEBOUNCE_MS, 0, vim.schedule_wrap(tick))
+end
+
+-- ============================================================ fs watcher =======
+-- Raw fs_event callback: fast (libuv) context — do NOTHING here but re-arm on error
+-- and kick the debounce timer. No vim.api / vim.system allowed here.
+function on_fs_event(err)
+  if err then
+    -- watch may have gone stale (rare: .git dir itself removed) — re-resolve & re-arm
+    vim.schedule(function()
+      M.watchers = nil
+      ensure_watching()
+    end)
     return
   end
-  vim.cmd("Git") -- fugitive opens its native status split
+  schedule_refresh()
 end
 
-local function stop_timer()
-  if M.timer then
-    M.timer:stop()
-    if not M.timer:is_closing() then M.timer:close() end
-    M.timer = nil
+function stop_watchers()
+  if M.watchers then
+    for _, w in ipairs(M.watchers) do
+      w:stop()
+      if not w:is_closing() then w:close() end
+    end
+    M.watchers = nil
   end
 end
 
+function stop_fallback()
+  if M.fallback then
+    M.fallback:stop()
+    if not M.fallback:is_closing() then M.fallback:close() end
+    M.fallback = nil
+  end
+end
+
+function start_fallback()
+  if M.fallback then return end
+  M.fallback = vim.uv.new_timer()
+  M.fallback:start(FALLBACK_MS, FALLBACK_MS, vim.schedule_wrap(function()
+    if any_target_open() then tick() else stop_fallback() end
+  end))
+end
+
+-- Arm one fs_event per resolved .git directory. We watch the *directory* (not files)
+-- so git's atomic rename (index.lock -> index) can't leave us watching a dead inode.
+function arm(dirs)
+  stop_watchers()
+  M.watchers = {}
+  local ok_any = false
+  for _, d in ipairs(dirs) do
+    local w = vim.uv.new_fs_event()
+    -- luv returns 0 (truthy in Lua) on success, or nil,err on failure
+    local ok = w:start(d, {}, on_fs_event)
+    if ok then
+      ok_any = true
+      table.insert(M.watchers, w)
+    else
+      pcall(function() w:close() end)
+    end
+  end
+  if ok_any then
+    stop_fallback()
+  else
+    -- inotify exhausted / unsupported FS: degrade to a slow poll instead of dying
+    M.watchers = nil
+    start_fallback()
+  end
+end
+
+local function absolutize(p, base)
+  if p == "" then return nil end
+  if p:sub(1, 1) ~= "/" then p = base .. "/" .. p end
+  return vim.fs.normalize(p)
+end
+
+-- Resolve the repo's git dir(s) async, then arm watchers. Watch the common dir
+-- (shared refs/tags/packed-refs for --all) and, in a linked worktree, also the
+-- per-worktree dir (its HEAD/index/reflog). In a normal repo the two are equal ->
+-- one watcher.
+function ensure_watching()
+  if not any_target_open() then return end
+  local root = vim.fn.getcwd()
+  if M.watchers and M.root == root then return end -- already watching this repo
+  M.root = root
+  stop_watchers()
+  vim.system(
+    { "git", "-C", root, "rev-parse", "--absolute-git-dir", "--git-common-dir" },
+    { text = true },
+    vim.schedule_wrap(function(obj)
+      if obj.code ~= 0 then return end -- not a git repo; nothing to watch
+      local parts = vim.split(obj.stdout, "\n", { trimempty = true })
+      local seen, dirs = {}, {}
+      for _, p in ipairs({ parts[1], parts[2] }) do
+        local abs = p and absolutize(p, root)
+        if abs and not seen[abs] then
+          seen[abs] = true
+          table.insert(dirs, abs)
+        end
+      end
+      if #dirs > 0 then arm(dirs) end
+    end)
+  )
+end
+
+-- Tear the watcher down once neither the log nor the status window is open.
+local function maybe_stop()
+  if not any_target_open() then
+    stop_watchers()
+    stop_fallback()
+    if M.debounce then
+      M.debounce:stop()
+      if not M.debounce:is_closing() then M.debounce:close() end
+      M.debounce = nil
+    end
+    M.root = nil
+  end
+end
+
+-- ============================================================ lifecycle ========
 local function close()
-  stop_timer()
-  stop_watcher()
   if win_valid() then
     pcall(vim.api.nvim_win_close, M.win, true)
   end
   M.win, M.buf = nil, nil
+  maybe_stop()
 end
 
 local function attach(buf, win)
@@ -221,13 +323,8 @@ local function attach(buf, win)
   -- q closes the log (fugitive's other maps: ri, cc, rr, ce, <CR>, ... still work)
   vim.keymap.set("n", "q", close, { buffer = buf, silent = true, desc = "Close git log" })
 
-  paint()
-  last_sig = git_sig()
-  stop_timer()
-  M.timer = vim.uv.new_timer()
-  M.timer:start(IDLE_MS, IDLE_MS, vim.schedule_wrap(function()
-    if win_valid() then poll_refresh() else stop_timer() end
-  end))
+  paint()           -- fugitive already filled the buffer; just color it
+  ensure_watching() -- subscribe to the repo; refreshes flow from fs events
 end
 
 local function open()
@@ -244,7 +341,7 @@ function M.toggle()
       close()
     else
       vim.api.nvim_set_current_win(M.win)
-      refresh()
+      refresh_log()
     end
     return
   end
@@ -257,7 +354,7 @@ function M.toggle()
         if vim.api.nvim_win_get_buf(w) == b then
           attach(b, w)
           vim.api.nvim_set_current_win(w)
-          refresh()
+          refresh_log()
           return
         end
       end
@@ -267,35 +364,77 @@ function M.toggle()
   open()
 end
 
+-- <leader>gs: close if focused on it, jump if open elsewhere, open otherwise
+function M.status_toggle()
+  local wn = status_win()
+  if wn then
+    if vim.api.nvim_get_current_win() == wn then
+      pcall(vim.api.nvim_win_close, wn, true)
+      maybe_stop()
+    else
+      vim.api.nvim_set_current_win(wn)
+      status_refresh()
+    end
+    return
+  end
+  vim.cmd("Git")    -- fugitive opens its native status split
+  ensure_watching() -- subscribe so the status buffer live-refreshes too
+end
+
+-- ================================================================ autocmds =====
 local aug = vim.api.nvim_create_augroup("GitLogWindow", { clear = true })
-vim.api.nvim_create_autocmd({ "BufWritePost", "FocusGained" }, {
-  group = aug,
-  callback = function()
-    vim.schedule(poll_refresh)   -- refresh log if git state changed (e.g. commit in another term)
-    vim.schedule(status_refresh) -- no-op if the status window isn't open
-  end,
-})
--- fugitive fires this on checkout/commit/rebase/etc — watch for the change to land
--- and refresh the instant it does (no fixed-delay guessing), so HEAD/status update
--- immediately after coo/cc/... regardless of repo size.
+
+-- fugitive fires this on checkout/commit/rebase/etc done inside nvim — an instant
+-- trigger (also catches branch create/delete label changes the top-level .git watch
+-- can miss). Funnels into the same debounced refresh as the fs watcher.
 vim.api.nvim_create_autocmd("User", {
   group = aug,
   pattern = "FugitiveChanged",
   callback = function()
-    if win_valid() then watch_for_change() end
-    if status_win() then status_burst(status_refresh) end
+    if any_target_open() then
+      ensure_watching()
+      schedule_refresh()
+    end
   end,
 })
+
+-- Belt-and-suspenders + recovery: on focus regained (commit from another terminal)
+-- re-arm the watcher if it died and refresh.
+vim.api.nvim_create_autocmd("FocusGained", {
+  group = aug,
+  callback = function()
+    if any_target_open() then
+      ensure_watching()
+      schedule_refresh()
+    end
+  end,
+})
+
+-- cwd changed to a different repo while a window is open — re-resolve & re-watch.
+vim.api.nvim_create_autocmd("DirChanged", {
+  group = aug,
+  callback = function()
+    if any_target_open() then
+      stop_watchers()
+      M.watchers, M.root = nil, nil
+      ensure_watching()
+      schedule_refresh()
+    end
+  end,
+})
+
+-- Any window closing: drop log state if it was ours, then release the watcher if
+-- nothing's left open (covers closing the status window via fugitive's own maps).
 vim.api.nvim_create_autocmd("WinClosed", {
   group = aug,
   callback = function(args)
     if M.win and tonumber(args.match) == M.win then
-      stop_timer()
-      stop_watcher()
       M.win, M.buf = nil, nil
     end
+    vim.schedule(maybe_stop)
   end,
 })
+
 -- repaint an open log after a colorscheme change (re-defines the groups too)
 vim.api.nvim_create_autocmd("ColorScheme", {
   group = aug,
@@ -303,6 +442,7 @@ vim.api.nvim_create_autocmd("ColorScheme", {
     if win_valid() then vim.schedule(paint) end
   end,
 })
+
 set_highlights()
 
 return {
