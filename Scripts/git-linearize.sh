@@ -16,32 +16,38 @@
 #   dev - [feat-a] - [feat-b] - [feat-c] - [feat-d] - [feat-e]
 #                                                        ^ dev can fast-forward here
 #
-# The trick is that each branch is rebased onto the PREVIOUS FEATURE BRANCH,
-# not back onto dev. By the time the last one is rebased the whole chain is
-# already a single unbroken line, so the base only has to fast-forward once —
-# and that fast-forward is a SEPARATE, opt-in final step, so the base never
-# moves unless you say so. (A `--ff-only` merge is used precisely so a stray
-# merge commit can never sneak in and un-linearize the result.)
+# The trick is that each branch is rebased onto the PREVIOUS BRANCH, not back
+# onto the base. By the time the last one is rebased the whole chain is already
+# a single unbroken line, so the base only has to fast-forward once. (A
+# `--ff-only` merge is used precisely so a stray merge commit can never sneak
+# in and un-linearize the result.)
+#
+# The base is CHOSEN, not forced: whichever branch you leave at the TOP of the
+# reorder list is the base. Every local branch is selectable (including dev),
+# so you pick the base like any other branch and move it to the top.
 #
 # Flow:
-#   1. pick    fzf multi-select, branches sorted by last commit (newest first),
-#              with a preview of each branch's unique commits. SPACE toggles.
-#   2. order   a small keyboard TUI: j/k to move the cursor, J/K to move the
-#              branch, d to drop, r to reverse, e to bail out to $EDITOR.
-#              The list is labelled (BASE) at the top and (TIP) at the bottom
-#              so it's obvious which way the chain is built.
+#   1. pick    fzf multi-select of EVERY local branch, sorted by last commit.
+#              SPACE toggles. Pick the base too — it's just another branch.
+#   2. order   a keyboard TUI. The TOP row is the BASE; each branch below
+#              rebases onto the one above; the bottom is the TIP.
+#                ↑/↓ or j/k   move the cursor
+#                Shift+↑/↓ or J/K   move the selected branch (sets the base
+#                                   when you move something to/from the top)
+#                f   toggle whether the base fast-forwards to the tip — shown
+#                    live on the BASE row (dev 50203db ─▶ tip)
+#                d drop · r reverse · e $EDITOR · ENTER accept · q cancel
 #   3. check   a pre-flight simulation replays the WHOLE chain in the object
 #              database (git merge-tree — no working tree touched). If any step
 #              would conflict, nothing is changed and you're told exactly where.
-#   4. confirm the exact commands + any force-push warnings, then y/N.
-#   5. rebase  build the chain.
-#   6. ff      a final, separate prompt: fast-forward the base to the tip?
-#              Press y to see a live preview of the move, then confirm.
+#   4. confirm one prompt: the exact commands (incl. the fast-forward if the
+#              toggle is on) + force-push warnings, then proceed? [y/N]. That's
+#              the only gate — answering y runs everything.
 #
 # Safety:
 #   * The pre-flight check means a first run either goes through cleanly or does
 #     nothing at all — no half-linearized mess. (Bypass with --no-preflight to
-#     use the old resolve-as-you-go behaviour.)
+#     use the resolve-as-you-go behaviour.)
 #   * Every affected branch's SHA is recorded BEFORE anything moves, so
 #     `--undo` puts the world back exactly as it was.
 #   * A dirty working tree, a rebase already in progress, or an unknown branch
@@ -50,24 +56,27 @@
 #     — resolve it, `git rebase --continue`, then `--continue` picks it back up.
 #
 # Usage:
-#   git-linearize.sh [BRANCH...] [-b BASE] [-n] [-d] [-u] [-y] [--no-preflight]
+#   git-linearize.sh [BASE BRANCH...] [-b BASE] [-n] [-d] [-u] [-y] [--no-ff]
 #   git-linearize.sh --continue | --abort | --undo
 #
 # Options:
-#   -b, --base BRANCH   base branch to stack onto  (default: dev/develop/main/master)
+#   -b, --base BRANCH   set the base explicitly; then every positional arg (and
+#                       interactively, the default top slot) stacks onto it
+#                       (default base: dev/develop/main/master)
 #   -n, --dry-run       print the commands, change nothing
-#   -d, --delete        delete the feature branches once they're folded in
+#   -d, --delete        delete the stacked branches once they're folded in
 #   -u, --update-base   fetch + fast-forward the base from its upstream first
-#   -y, --yes           skip both confirmations AND fast-forward the base
-#       --no-ff         never offer to fast-forward the base (stop after rebasing)
+#   -y, --yes           skip the proceed prompt (fast-forward per --ff/--no-ff)
+#       --no-ff         don't fast-forward the base — stop after rebasing
 #       --no-preflight  skip the conflict simulation; resolve conflicts as you go
 #       --continue      resume a run that stopped on a conflict
 #       --abort         abort a stopped run (aborts the rebase, restores HEAD)
 #       --undo          reset every touched branch to its pre-run SHA
 #   -h, --help          this text
 #
-# Passing BRANCH names positionally skips both the picker and the reorderer —
-# the order you type is the order you get.
+# Positional form skips the picker and reorderer. Without -b the FIRST branch
+# is the base and the rest stack in order: `git-linearize.sh dev c a b`. With
+# -b, every positional arg stacks onto that base.
 #
 # Requires: git (>= 2.38 for the pre-flight check), fzf (for the picker).
 
@@ -89,6 +98,7 @@ usage() { sed -n '3,/^# Requires/p' "$0" | sed 's/^#\{1,2\} \{0,1\}//;s/^#$//'; 
 
 # ─── options ─────────────────────────────────────────────────────────────────
 BASE=''
+OPT_BASE_GIVEN=false
 DRY=false
 DELETE=false
 UPDATE_BASE=false
@@ -100,7 +110,7 @@ CLI_BRANCHES=()
 
 while (( $# )); do
     case $1 in
-        -b|--base)        BASE=${2:?--base needs a ref}; shift 2 ;;
+        -b|--base)        BASE=${2:?--base needs a ref}; OPT_BASE_GIVEN=true; shift 2 ;;
         -n|--dry-run)     DRY=true; shift ;;
         -d|--delete)      DELETE=true; shift ;;
         -u|--update-base) UPDATE_BASE=true; shift ;;
@@ -215,15 +225,20 @@ do_undo() {
 
 # ─── branch inventory ────────────────────────────────────────────────────────
 # CAND[i]="name<TAB>ahead<TAB>behind<TAB>reldate<TAB>subject"
+# EVERY local branch is a candidate, including the default base — you choose the
+# base by putting a branch at the top of the reorder list, so it has to be
+# selectable here too. ↑/↓ are relative to the default base, just as a hint.
 collect_candidates() {
     local name reldate subject counts behind ahead
     CAND=()
     while IFS=$'\t' read -r name reldate subject; do
-        [[ $name == "$BASE" ]] && continue
-        counts=$(git rev-list --left-right --count "$BASE...$name" 2>/dev/null) || continue
-        behind=${counts%%[[:space:]]*}
-        ahead=${counts##*[[:space:]]}
-        (( ahead > 0 )) || continue          # nothing unique to stack — skip
+        if [[ -n $DEFAULT_BASE ]] \
+           && counts=$(git rev-list --left-right --count "$DEFAULT_BASE...$name" 2>/dev/null); then
+            behind=${counts%%[[:space:]]*}
+            ahead=${counts##*[[:space:]]}
+        else
+            behind=0; ahead=0
+        fi
         CAND+=("$name"$'\t'"$ahead"$'\t'"$behind"$'\t'"$reldate"$'\t'"$subject")
     done < <(git for-each-ref --sort=-committerdate refs/heads/ \
                  --format='%(refname:short)%09%(committerdate:relative)%09%(contents:subject)')
@@ -254,9 +269,9 @@ pick_branches() {
         --multi --ansi --reverse --height=90% --border=rounded \
         --prompt='linearize ❯ ' --pointer='▸' --marker='✓' \
         --header-first \
-        --header=$'SPACE toggle · TAB toggle+down · CTRL-A all · ENTER confirm · ESC cancel\nsorted by last commit, newest first — ↑ commits ahead of '"$BASE"$', ↓ behind\n' \
+        --header=$'SPACE toggle · TAB toggle+down · CTRL-A all · ENTER confirm · ESC cancel\npick every branch for the line — INCLUDING the one to use as the base ('"$DEFAULT_BASE"$').\nsorted by last commit, newest first — ↑/↓ = commits vs '"$DEFAULT_BASE"$'.\n' \
         --bind='space:toggle,tab:toggle+down,ctrl-a:toggle-all,ctrl-d:deselect-all,?:toggle-preview' \
-        --preview="git log --color=always --oneline --no-decorate '$BASE'..{1} | head -200" \
+        --preview="git log --color=always --oneline --no-decorate '$DEFAULT_BASE'..{1} | head -200" \
         --preview-window='right,50%,border-left' \
         | sed 's/\x1b\[[0-9;]*m//g' | awk 'NF{print $1}'
 }
@@ -272,21 +287,37 @@ tui_cleanup() {
 trap 'tui_cleanup' EXIT
 trap 'tui_cleanup; exit 130' INT TERM
 
-# Reads one keypress (including arrow escape sequences) into KEY.
+# Reads one keypress into KEY, decoding full escape sequences — plain arrows
+# (CSI \e[A and SS3 \eOA forms) and modified arrows (Shift+arrow = \e[1;2A).
+# A bare ESC returns just "\e". Reads the whole CSI sequence up to its final
+# letter so multi-byte keys aren't truncated (the old 2-byte read broke them).
 read_key() {
-    local k='' rest=''
+    local k c
     IFS= read -rsn1 k <&3 || return 1
     if [[ $k == $'\e' ]]; then
-        IFS= read -rsn2 -t 0.03 rest <&3 || true
-        k+=$rest
+        IFS= read -rsn1 -t 0.06 c <&3 || { KEY=$'\e'; return 0; }
+        k+=$c
+        if [[ $c == '[' ]]; then
+            while IFS= read -rsn1 -t 0.06 c <&3; do
+                k+=$c
+                [[ $c == [A-Za-z~] ]] && break
+            done
+        elif [[ $c == 'O' ]]; then
+            IFS= read -rsn1 -t 0.06 c <&3 && k+=$c
+        fi
     fi
     KEY=$k
 }
 
-# Fills ORDER[] with the branch names in the chosen order. Returns 1 on cancel.
+# The reorder list IS the whole chain: items[0] is the BASE (the foundation,
+# never rebased); every branch below rebases onto the one above it. Move a
+# branch to the top to make it the base. `f` toggles whether the base then
+# fast-forwards to the tip — shown live on the BASE row.
+# Fills ORDER[] (top → bottom) and sets DO_FF. Returns 1 on cancel.
 reorder_tui() {
     local -a items=("$@")
-    local n=${#items[@]} cur=0 w=0 i nm ahead tmp
+    local n=${#items[@]} cur=0 w=0 i nm tmp cnt prev basesha tip ptr tag
+    FF_TOGGLE=$DO_FF
 
     for i in "${items[@]}"; do nm=${i%%$'\t'*}; (( ${#nm} > w )) && w=${#nm}; done
 
@@ -295,64 +326,75 @@ reorder_tui() {
     { tput smcup; tput civis; } >/dev/tty 2>/dev/null || true
 
     while :; do
+        basesha=$(git rev-parse --short "${items[0]%%$'\t'*}" 2>/dev/null)
+        tip=${items[n-1]%%$'\t'*}
         {
             printf '\e[H\e[2J'
-            printf '%s  order the chain%s   %stop rebases onto the %sBASE%s%s first · bottom becomes the %sTIP%s\n\n' \
-                   "$B" "$R" "$D" "$BLU" "$R$D" "" "$CYN" "$R"
-            printf '   %s(BASE)%s %s%-*s%s %s%s%s\n' \
-                   "$BLU$B" "$R" "$BLU" "$w" "$BASE" "$R" "$D" "$(git rev-parse --short "$BASE")" "$R"
-            printf '          %s│%s\n' "$D" "$R"
+            printf '%s  reorder%s   %sthe %sTOP%s%s branch is the BASE; each one below rebases onto the one above%s\n\n' \
+                   "$B" "$R" "$D" "$BLU" "$R$D" "" "$R"
             for ((i = 0; i < n; i++)); do
-                IFS=$'\t' read -r nm ahead <<<"${items[i]}"
-                local tag=''
-                (( i == n-1 )) && tag="  ${CYN}${B}(TIP)${R}"
-                if (( i == cur )); then
-                    printf '%s ▸ %2d %s %s%-*s%s %s%s commits%s%s\n' \
-                        "$CYN" $((i+1)) "$R" "$CYN$B" "$w" "$nm" "$R" "$D" "$ahead" "$R" "$tag"
+                nm=${items[i]%%$'\t'*}
+                ptr='   '; (( i == cur )) && ptr=" ${CYN}▸${R} "
+                if (( i == 0 )); then
+                    printf '%s%s(BASE)%s %s%-*s%s %s%s%s   %s← foundation, not rebased%s\n' \
+                        "$ptr" "$BLU$B" "$R" "$BLU" "$w" "$nm" "$R" "$D" "$basesha" "$R" "$D" "$R"
                 else
-                    printf '   %s%2d%s  %s%-*s%s %s%s commits%s%s\n' \
-                        "$D" $((i+1)) "$R" "" "$w" "$nm" "$R" "$D" "$ahead" "$R" "$tag"
+                    prev=${items[i-1]%%$'\t'*}
+                    cnt=$(git rev-list --count "$prev..$nm" 2>/dev/null || echo '?')
+                    tag=''; (( i == n-1 )) && tag="  ${CYN}${B}(TIP)${R}"
+                    if (( i == cur )); then
+                        printf '%s%s%-*s%s %s%s commits%s %sonto %s%s%s\n' \
+                            "$ptr" "$CYN$B" "$w" "$nm" "$R" "$D" "$cnt" "$R" "$D" "$prev" "$R" "$tag"
+                    else
+                        printf '%s%-*s %s%s commits%s %sonto %s%s%s\n' \
+                            "$ptr" "$w" "$nm" "$D" "$cnt" "$R" "$D" "$prev" "$R" "$tag"
+                    fi
                 fi
             done
-            printf '          %s│%s\n' "$D" "$R"
-            printf '   %safterwards, %s%s%s%s can fast-forward to %s%s%s %s(opt-in)%s\n\n' \
-                   "$D" "$BLU" "$BASE" "$R" "$D" "$CYN" "${items[n-1]%%$'\t'*}" "$R$D" "" "$R"
-            printf '%s  j/k move cursor · J/K move branch · d drop · r reverse · e $EDITOR\n' "$D"
-            printf '  ENTER accept · q cancel%s\n' "$R"
+            printf '\n'
+            if $FF_TOGGLE; then
+                printf '   %sfast-forward%s %sON%s  — %s%s%s will advance %s%s ─▶ %s%s%s %s(the tip)%s\n' \
+                    "$B" "$R" "$GRN$B" "$R" "$BLU" "${items[0]%%$'\t'*}" "$R" \
+                    "$D" "$basesha" "$R$CYN" "$tip" "$R" "$D" "$R"
+            else
+                printf '   %sfast-forward%s %sOFF%s — %s%s%s stays at %s%s%s  %s(press f to advance it to the tip)%s\n' \
+                    "$B" "$R" "$YEL$B" "$R" "$BLU" "${items[0]%%$'\t'*}" "$R$D" "$basesha" "$R" "$D" "$R"
+            fi
+            printf '\n%s  ↑/↓ or j/k move cursor · Shift+↑/↓ or J/K move branch · %sf%s%s fast-forward\n' \
+                   "$D" "$R$B" "$R$D" ""
+            printf '  d drop · r reverse · e $EDITOR · ENTER accept · q cancel%s\n' "$R"
         } >/dev/tty
 
         read_key || break
         case $KEY in
             ''|$'\n'|$'\r')  break ;;
-            j|$'\e[B')  if (( cur < n-1 )); then cur=$((cur+1)); fi ;;
-            k|$'\e[A')  if (( cur > 0 ));   then cur=$((cur-1)); fi ;;
-            J)  if (( cur < n-1 )); then
-                    tmp=${items[cur]}; items[cur]=${items[cur+1]}; items[cur+1]=$tmp
-                    cur=$((cur+1))
+            j|$'\e[B'|$'\eOB')  (( cur < n-1 )) && cur=$((cur+1)) ; : ;;
+            k|$'\e[A'|$'\eOA')  (( cur > 0 ))   && cur=$((cur-1)) ; : ;;
+            J|$'\e[1;2B'|$'\e[b')
+                if (( cur < n-1 )); then
+                    tmp=${items[cur]}; items[cur]=${items[cur+1]}; items[cur+1]=$tmp; cur=$((cur+1))
                 fi ;;
-            K)  if (( cur > 0 )); then
-                    tmp=${items[cur]}; items[cur]=${items[cur-1]}; items[cur-1]=$tmp
-                    cur=$((cur-1))
+            K|$'\e[1;2A'|$'\e[a')
+                if (( cur > 0 )); then
+                    tmp=${items[cur]}; items[cur]=${items[cur-1]}; items[cur-1]=$tmp; cur=$((cur-1))
                 fi ;;
+            f|F)  if $FF_TOGGLE; then FF_TOGGLE=false; else FF_TOGGLE=true; fi ;;
             g)  cur=0 ;;
             G)  cur=$((n-1)) ;;
             d|x)
-                if (( n > 1 )); then
+                if (( n > 2 )); then                         # keep at least base + one
                     items=("${items[@]:0:cur}" "${items[@]:cur+1}")
                     n=$((n-1))
-                    if (( cur >= n )); then cur=$((n-1)); fi
+                    (( cur >= n )) && cur=$((n-1))
                 fi ;;
             r)  local -a rev=()
                 for ((i = n-1; i >= 0; i--)); do rev+=("${items[i]}"); done
                 items=("${rev[@]}"); cur=$((n-1-cur)) ;;
             e)  local f; f=$(mktemp)
                 {
-                    for i in "${items[@]}"; do
-                        IFS=$'\t' read -r nm ahead <<<"$i"
-                        printf '%s\t# %s commits\n' "$nm" "$ahead"
-                    done
+                    for i in "${items[@]}"; do printf '%s\n' "${i%%$'\t'*}"; done
                     printf '\n# reorder / delete lines, then save and quit.\n'
-                    printf '# top of the list is rebased onto %s first.\n' "$BASE"
+                    printf '# the FIRST line is the base; each line below rebases onto the one above.\n'
                 } >"$f"
                 tui_cleanup
                 "${EDITOR:-vi}" "$f" </dev/tty >/dev/tty 2>&1 || true
@@ -366,7 +408,7 @@ reorder_tui() {
                     done
                 done <"$f"
                 rm -f "$f"
-                if (( ${#kept[@]} )); then items=("${kept[@]}"); n=${#items[@]}; cur=0; fi
+                if (( ${#kept[@]} >= 2 )); then items=("${kept[@]}"); n=${#items[@]}; cur=0; fi
                 TUI_ON=true
                 { tput smcup; tput civis; } >/dev/tty 2>/dev/null || true ;;
             q|$'\e')
@@ -378,6 +420,7 @@ reorder_tui() {
     exec 3<&-
     ORDER=()
     for i in "${items[@]}"; do ORDER+=("${i%%$'\t'*}"); done
+    DO_FF=$FF_TOGGLE
     return 0
 }
 
@@ -441,8 +484,13 @@ show_plan() {
                "$CYN" "$b" "$R" "$D" "$ahead" "$R" "$D" "$prev" "$R"
         prev=$b
     done
-    printf '\n   %s%s%s can then fast-forward to %s%s%s  %s(+%s commits, one straight line — opt-in)%s\n' \
-           "$BLU" "$BASE" "$R" "$CYN" "${CHAIN[-1]}" "$R" "$D" "$n_total" "$R"
+    if $DO_FF; then
+        printf '\n   %s%s%s will fast-forward to %s%s%s  %s(+%s commits, one straight line)%s\n' \
+               "$BLU" "$BASE" "$R" "$CYN" "${CHAIN[-1]}" "$R" "$D" "$n_total" "$R"
+    else
+        printf '\n   %s%s stays put%s — %s%s%s holds the line %s(fast-forward is off)%s\n' \
+               "$BLU" "$BASE" "$R" "$CYN" "${CHAIN[-1]}" "$R" "$D" "$R"
+    fi
 
     printf '\n%scommands%s\n' "$B" "$R"
     prev=$BASE
@@ -451,8 +499,8 @@ show_plan() {
         prev=$b
     done
     if $DO_FF; then
-        printf '   %sgit checkout %s && git merge --ff-only %s%s   %s← separate y/N afterwards%s\n' \
-               "$D" "$BASE" "${CHAIN[-1]}" "$R" "$D" "$R"
+        printf '   %sgit checkout %s && git merge --ff-only %s%s\n' \
+               "$D" "$BASE" "${CHAIN[-1]}" "$R"
     fi
     $DELETE && printf '   %sgit branch -d %s%s\n' "$D" "${CHAIN[*]}" "$R"
 
@@ -502,6 +550,7 @@ run_cmd() {
 # Rebase everything still in TODO onto PREV, saving state as we go.
 run_chain() {
     local b
+    FF_APPLIED=false
     while (( ${#TODO[@]} )); do
         b=${TODO[0]}
         printf '\n%s▸ %s%s %sonto %s%s\n' "$B$CYN" "$b" "$R" "$D" "$PREV" "$R"
@@ -524,73 +573,26 @@ run_chain() {
         save_state "$PREV" ${TODO[@]+"${TODO[@]}"}
     done
 
-    ff_step
+    # The fast-forward decision was already made (reorder toggle / --ff / --no-ff)
+    # and shown in the plan the user just confirmed — so just do it, no re-prompt.
+    if $DO_FF; then
+        local n; n=$(git rev-list --count "$BASE..$PREV" 2>/dev/null || echo 0)
+        if (( n > 0 )); then
+            printf '\n%s▸ fast-forwarding %s%s%s to %s%s %s(+%d)%s\n' \
+                   "$B$BLU" "$BASE" "$R" "$D" "$CYN" "$PREV" "$D" "$n" "$R"
+            _apply_ff "$PREV"
+        fi
+    fi
     finalize
 }
 
-# ─── step 6: fast-forward the base (separate, opt-in) ────────────────────────
+# ─── fast-forward the base to the chain tip ──────────────────────────────────
 _apply_ff() {   # _apply_ff <tip>
     run_cmd git checkout --quiet "$BASE" || die "could not check out $BASE"
     if ! run_cmd git merge --ff-only "$1"; then
         die "$BASE could not fast-forward to $1 — it must have moved; rerun with --update-base"
     fi
     FF_APPLIED=true
-}
-
-# Arm-on-y → live preview → confirm. Advances BASE to the chain tip ($PREV).
-ff_step() {
-    FF_APPLIED=false
-    local tip=$PREV base_sha tip_sha n key lim
-    base_sha=$(git rev-parse --short "$BASE")
-    tip_sha=$(git rev-parse --short "$tip" 2>/dev/null || printf '%s' "$tip")
-    n=$(git rev-list --count "$BASE..$tip" 2>/dev/null || echo 0)
-
-    if ! $DO_FF; then
-        printf '\n%s— base left where it is%s (--no-ff); %s%s%s holds the line at %s.\n' \
-               "$D" "$R" "$CYN" "$tip" "$R" "$tip_sha"
-        return 0
-    fi
-    (( n == 0 )) && return 0                       # base already at the tip
-
-    if $DRY; then
-        printf '\n%s+ git checkout %s && git merge --ff-only %s%s   %s(dry run)%s\n' \
-               "$D" "$BASE" "$tip" "$R" "$D" "$R"
-        return 0
-    fi
-    $ASSUME_YES && { _apply_ff "$tip"; return 0; }
-
-    # Open the terminal for reads; if there's no usable tty, skip gracefully.
-    if ! { exec 3</dev/tty; } 2>/dev/null; then
-        printf '\n%s— %s left where it is (no terminal); rerun with -y to fast-forward.%s\n' \
-               "$D" "$BASE" "$R"
-        return 0
-    fi
-    printf '\n%sfast-forward %s%s%s%s to the tip %s%s%s? [y/N] ' \
-           "$B" "$BLU" "$BASE" "$R" "$B" "$CYN" "$tip" "$R"
-    IFS= read -rsn1 key <&3 || { printf '\n'; exec 3<&-; return 0; }
-    if [[ $key != [yY] ]]; then
-        printf '%s\n%s— left %s where it is.%s\n' "$key" "$D" "$BASE" "$R"
-        exec 3<&-; return 0
-    fi
-    printf 'y'
-
-    # ── live preview of exactly what will move ──
-    lim=$(( n < 8 ? n : 8 ))
-    printf '\n\n  %s%s%s  %s%s ─▶ %s%s   %s(+%d commit%s)%s\n' \
-           "$BLU$B" "$BASE" "$R" "$D" "$base_sha" "$tip_sha" "$R" \
-           "$D" "$n" "$([[ $n -eq 1 ]] || echo s)" "$R"
-    git --no-pager log --oneline --decorate --color=always -n "$lim" "$BASE..$tip" \
-        | sed "s/^/    ${CYN}▲${R} /"
-    (( n > lim )) && printf '    %s… %d more%s\n' "$D" $((n-lim)) "$R"
-    printf '    %s%s ◄ %s is here now%s\n' "$D" "$base_sha" "$BASE" "$R"
-
-    printf '\n  %sEnter/y = apply · any other key = cancel%s ' "$B" "$R"
-    IFS= read -rsn1 key <&3 || key=x
-    exec 3<&-
-    case $key in
-        ''|y|Y|$'\n'|$'\r')  printf '\n'; _apply_ff "$tip" ;;
-        *)  printf '%s\n  %s— cancelled; %s left at %s.%s\n' "$key" "$D" "$BASE" "$base_sha" "$R" ;;
-    esac
 }
 
 # ─── finish: delete folded branches (opt-in) + summary ───────────────────────
@@ -658,11 +660,68 @@ continue)
 esac
 
 # ── fresh run ────────────────────────────────────────────────────────────────
-[[ -n $BASE ]] || BASE=$(detect_base)
-[[ -n $BASE ]] || die "could not work out a base branch — pass --base"
-have_branch "$BASE" || die "base branch '$BASE' does not exist"
+# The base is chosen, not forced: interactively it's whatever branch you leave
+# at the TOP of the reorder list; DEFAULT_BASE just seeds that top slot and the
+# picker's ↑/↓ hints. -b overrides the default; on the CLI the base is explicit.
+DEFAULT_BASE=$BASE
+[[ -n $DEFAULT_BASE ]] || DEFAULT_BASE=$(detect_base)
+if [[ -n $DEFAULT_BASE ]]; then
+    have_branch "$DEFAULT_BASE" || die "base branch '$DEFAULT_BASE' does not exist"
+fi
 
 require_clean
+
+ORIG_HEAD=$(current_head)
+
+declare -a CHAIN=()
+declare -A AHEAD=()
+BASE=''
+
+if (( ${#CLI_BRANCHES[@]} )); then
+    # Non-interactive. With -b the base is explicit and every arg stacks on it;
+    # otherwise the FIRST arg is the base and the rest stack in order.
+    if [[ -n $DEFAULT_BASE ]] && [[ ${OPT_BASE_GIVEN:-false} == true ]]; then
+        BASE=$DEFAULT_BASE
+    else
+        BASE=${CLI_BRANCHES[0]}
+        CLI_BRANCHES=("${CLI_BRANCHES[@]:1}")
+    fi
+    have_branch "$BASE" || die "no such branch: $BASE"
+    for b in "${CLI_BRANCHES[@]}"; do
+        have_branch "$b" || die "no such branch: $b"
+        [[ $b == "$BASE" ]] && die "'$b' is both the base and a branch to stack"
+        CHAIN+=("$b")
+    done
+    (( ${#CHAIN[@]} )) || die "need at least one branch to stack onto the base '$BASE'"
+else
+    collect_candidates
+    (( ${#CAND[@]} )) || die "no local branches to linearize"
+
+    mapfile -t picked < <(pick_branches)
+    (( ${#picked[@]} )) || { info "nothing selected."; exit 0; }
+    (( ${#picked[@]} >= 2 )) || die "pick at least two: a base and one branch to stack onto it"
+
+    # Feed the reorderer in picker order (newest first), but float the default
+    # base to the top so out of the box it behaves conventionally.
+    declare -a items=() rest_items=()
+    for b in "${picked[@]}"; do
+        for e in "${CAND[@]}"; do
+            if [[ ${e%%$'\t'*} == "$b" ]]; then
+                if [[ $b == "$DEFAULT_BASE" ]]; then items+=("$b"); else rest_items+=("$b"); fi
+                break
+            fi
+        done
+    done
+    items+=("${rest_items[@]}")
+
+    declare -a ORDER=()
+    reorder_tui "${items[@]}" || { info "cancelled."; exit 0; }
+    BASE=${ORDER[0]}
+    CHAIN=("${ORDER[@]:1}")
+fi
+
+[[ -n $BASE ]] || die "no base branch"
+(( ${#CHAIN[@]} )) || { info "nothing to stack."; exit 0; }
 
 if $UPDATE_BASE; then
     info "updating ${BLU}$BASE${R} from its upstream…"
@@ -675,48 +734,7 @@ if $UPDATE_BASE; then
     fi
 fi
 
-ORIG_HEAD=$(current_head)
 ORIG_BASE_SHA=$(git rev-parse "$BASE")
-
-declare -a CHAIN=()
-declare -A AHEAD=()
-
-if (( ${#CLI_BRANCHES[@]} )); then
-    # Non-interactive: the argument order IS the chain order.
-    for b in "${CLI_BRANCHES[@]}"; do
-        have_branch "$b" || die "no such branch: $b"
-        [[ $b == "$BASE" ]] && die "'$b' is the base branch"
-        CHAIN+=("$b")
-    done
-else
-    collect_candidates
-    (( ${#CAND[@]} )) || die "no branches with commits of their own on top of '$BASE'"
-
-    mapfile -t picked < <(pick_branches)
-    (( ${#picked[@]} )) || { info "nothing selected."; exit 0; }
-
-    # Hand the picker's output to the reorderer, newest-first as it came in.
-    declare -a items=()
-    for b in "${picked[@]}"; do
-        for e in "${CAND[@]}"; do
-            if [[ ${e%%$'\t'*} == "$b" ]]; then
-                IFS=$'\t' read -r nm ah rest <<<"$e"
-                items+=("$nm"$'\t'"$ah")
-                break
-            fi
-        done
-    done
-
-    declare -a ORDER=()
-    if (( ${#items[@]} > 1 )); then
-        reorder_tui "${items[@]}" || { info "cancelled."; exit 0; }
-    else
-        ORDER=("${items[0]%%$'\t'*}")
-    fi
-    CHAIN=("${ORDER[@]}")
-fi
-
-(( ${#CHAIN[@]} )) || { info "nothing to do."; exit 0; }
 
 for b in "${CHAIN[@]}"; do
     AHEAD[$b]=$(git rev-list --count "$BASE..$b")
