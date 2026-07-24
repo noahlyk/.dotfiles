@@ -140,6 +140,7 @@ bindkey -M menuselect 'j' vi-down-line-or-history
 alias c='qalc'
 alias makepkg-atomic='~/Scripts/makepkg-atomic.sh'
 alias dl='~/Scripts/download.sh'
+alias linearize='~/Scripts/git-linearize.sh'
 alias sudo='sudo ' # allows aliases with sudo
 alias tm='trash'
 alias ..='cd ..'
