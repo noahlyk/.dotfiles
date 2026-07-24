@@ -14,40 +14,53 @@
 # You want a train, in an order you choose:
 #
 #   dev - [feat-a] - [feat-b] - [feat-c] - [feat-d] - [feat-e]
-#                                                        ^ dev fast-forwards here
+#                                                        ^ dev can fast-forward here
 #
 # The trick is that each branch is rebased onto the PREVIOUS FEATURE BRANCH,
 # not back onto dev. By the time the last one is rebased the whole chain is
-# already a single unbroken line, so `dev` only has to fast-forward once, at
-# the end. (A `--ff-only` merge is used precisely so a stray merge commit can
-# never sneak in and un-linearize the result.)
+# already a single unbroken line, so the base only has to fast-forward once —
+# and that fast-forward is a SEPARATE, opt-in final step, so the base never
+# moves unless you say so. (A `--ff-only` merge is used precisely so a stray
+# merge commit can never sneak in and un-linearize the result.)
 #
 # Flow:
 #   1. pick    fzf multi-select, branches sorted by last commit (newest first),
 #              with a preview of each branch's unique commits. SPACE toggles.
 #   2. order   a small keyboard TUI: j/k to move the cursor, J/K to move the
 #              branch, d to drop, r to reverse, e to bail out to $EDITOR.
-#   3. confirm the exact commands + any force-push warnings, then y/N.
-#   4. run     rebase the chain, fast-forward the base.
+#              The list is labelled (BASE) at the top and (TIP) at the bottom
+#              so it's obvious which way the chain is built.
+#   3. check   a pre-flight simulation replays the WHOLE chain in the object
+#              database (git merge-tree — no working tree touched). If any step
+#              would conflict, nothing is changed and you're told exactly where.
+#   4. confirm the exact commands + any force-push warnings, then y/N.
+#   5. rebase  build the chain.
+#   6. ff      a final, separate prompt: fast-forward the base to the tip?
+#              Press y to see a live preview of the move, then confirm.
 #
 # Safety:
+#   * The pre-flight check means a first run either goes through cleanly or does
+#     nothing at all — no half-linearized mess. (Bypass with --no-preflight to
+#     use the old resolve-as-you-go behaviour.)
 #   * Every affected branch's SHA is recorded BEFORE anything moves, so
 #     `--undo` puts the world back exactly as it was.
 #   * A dirty working tree, a rebase already in progress, or an unknown branch
 #     aborts before the first write.
-#   * A conflict pauses the run and saves state — resolve it, `git rebase
-#     --continue`, then `git-linearize.sh --continue` picks the chain back up.
+#   * If you bypass the check and hit a conflict, the run pauses and saves state
+#     — resolve it, `git rebase --continue`, then `--continue` picks it back up.
 #
 # Usage:
-#   git-linearize.sh [BRANCH...] [-b BASE] [-n] [-d] [-u] [-y]
+#   git-linearize.sh [BRANCH...] [-b BASE] [-n] [-d] [-u] [-y] [--no-preflight]
 #   git-linearize.sh --continue | --abort | --undo
 #
 # Options:
-#   -b, --base BRANCH   base to stack onto      (default: dev/develop/main/master)
+#   -b, --base BRANCH   base branch to stack onto  (default: dev/develop/main/master)
 #   -n, --dry-run       print the commands, change nothing
 #   -d, --delete        delete the feature branches once they're folded in
 #   -u, --update-base   fetch + fast-forward the base from its upstream first
-#   -y, --yes           skip the final confirmation
+#   -y, --yes           skip both confirmations AND fast-forward the base
+#       --no-ff         never offer to fast-forward the base (stop after rebasing)
+#       --no-preflight  skip the conflict simulation; resolve conflicts as you go
 #       --continue      resume a run that stopped on a conflict
 #       --abort         abort a stopped run (aborts the rebase, restores HEAD)
 #       --undo          reset every touched branch to its pre-run SHA
@@ -56,7 +69,7 @@
 # Passing BRANCH names positionally skips both the picker and the reorderer —
 # the order you type is the order you get.
 #
-# Requires: git, fzf (only for the interactive picker).
+# Requires: git (>= 2.38 for the pre-flight check), fzf (for the picker).
 
 set -uo pipefail
 
@@ -80,16 +93,20 @@ DRY=false
 DELETE=false
 UPDATE_BASE=false
 ASSUME_YES=false
+DO_FF=true
+PREFLIGHT=true
 ACTION=run
 CLI_BRANCHES=()
 
 while (( $# )); do
     case $1 in
-        -b|--base)        BASE=${2:?--base needs a branch}; shift 2 ;;
+        -b|--base)        BASE=${2:?--base needs a ref}; shift 2 ;;
         -n|--dry-run)     DRY=true; shift ;;
         -d|--delete)      DELETE=true; shift ;;
         -u|--update-base) UPDATE_BASE=true; shift ;;
         -y|--yes)         ASSUME_YES=true; shift ;;
+        --no-ff)          DO_FF=false; shift ;;
+        --no-preflight)   PREFLIGHT=false; shift ;;
         --continue)       ACTION=continue; shift ;;
         --abort)          ACTION=abort; shift ;;
         --undo)           ACTION=undo; shift ;;
@@ -280,21 +297,26 @@ reorder_tui() {
     while :; do
         {
             printf '\e[H\e[2J'
-            printf '%s  order the chain%s  %s— top is rebased onto %s first%s\n\n' \
-                   "$B" "$R" "$D" "$BASE" "$R"
-            printf '   %s%s%s\n' "$D" "$BASE" "$R"
+            printf '%s  order the chain%s   %stop rebases onto the %sBASE%s%s first · bottom becomes the %sTIP%s\n\n' \
+                   "$B" "$R" "$D" "$BLU" "$R$D" "" "$CYN" "$R"
+            printf '   %s(BASE)%s %s%-*s%s %s%s%s\n' \
+                   "$BLU$B" "$R" "$BLU" "$w" "$BASE" "$R" "$D" "$(git rev-parse --short "$BASE")" "$R"
+            printf '          %s│%s\n' "$D" "$R"
             for ((i = 0; i < n; i++)); do
                 IFS=$'\t' read -r nm ahead <<<"${items[i]}"
+                local tag=''
+                (( i == n-1 )) && tag="  ${CYN}${B}(TIP)${R}"
                 if (( i == cur )); then
-                    printf '%s ▸ %2d  %-*s %s%s commits%s\n' \
-                        "$CYN" $((i+1)) "$w" "$nm" "$R$D" "$ahead" "$R"
+                    printf '%s ▸ %2d %s %s%-*s%s %s%s commits%s%s\n' \
+                        "$CYN" $((i+1)) "$R" "$CYN$B" "$w" "$nm" "$R" "$D" "$ahead" "$R" "$tag"
                 else
-                    printf '   %s%2d%s  %-*s %s%s commits%s\n' \
-                        "$D" $((i+1)) "$R" "$w" "$nm" "$D" "$ahead" "$R"
+                    printf '   %s%2d%s  %s%-*s%s %s%s commits%s%s\n' \
+                        "$D" $((i+1)) "$R" "" "$w" "$nm" "$R" "$D" "$ahead" "$R" "$tag"
                 fi
             done
-            printf '\n   %s%s fast-forwards to %s%s\n\n' \
-                   "$D" "$BASE" "$(printf '%s' "${items[n-1]%%$'\t'*}")" "$R"
+            printf '          %s│%s\n' "$D" "$R"
+            printf '   %safterwards, %s%s%s%s can fast-forward to %s%s%s %s(opt-in)%s\n\n' \
+                   "$D" "$BLU" "$BASE" "$R" "$D" "$CYN" "${items[n-1]%%$'\t'*}" "$R$D" "" "$R"
             printf '%s  j/k move cursor · J/K move branch · d drop · r reverse · e $EDITOR\n' "$D"
             printf '  ENTER accept · q cancel%s\n' "$R"
         } >/dev/tty
@@ -359,7 +381,52 @@ reorder_tui() {
     return 0
 }
 
-# ─── step 3: confirm ─────────────────────────────────────────────────────────
+# ─── step 3: pre-flight conflict check ───────────────────────────────────────
+# Replay the ENTIRE chain in the object database with `git merge-tree` — no
+# working tree, no index, no refs touched (temp commits are unreferenced and
+# get gc'd). If any commit would conflict, we know before moving anything.
+# Mirrors the real sequence exactly: each branch rebases onto the previous
+# branch's freshly-rebased tip.
+preflight_supported() {
+    local e; e=$(git rev-parse HEAD 2>/dev/null) || return 1
+    git merge-tree --write-tree --merge-base="$e" "$e" "$e" >/dev/null 2>&1
+}
+
+preflight_check() {   # sets PF_CONFLICT_* ; returns 1 on predicted conflict
+    PF_CONFLICT_BRANCH=''; PF_CONFLICT_SUBJECT=''; PF_CONFLICT_FILES=''
+    local a b ci parent out rc tree cur
+    a=$(git rev-parse "$BASE")
+    for b in "${CHAIN[@]}"; do
+        cur=$a
+        while IFS= read -r ci; do
+            [[ -n $ci ]] || continue
+            parent=$(git rev-parse --verify --quiet "$ci^") || parent=$a
+            out=$(git merge-tree --write-tree --merge-base="$parent" "$cur" "$ci" 2>/dev/null); rc=$?
+            if (( rc != 0 )); then
+                PF_CONFLICT_BRANCH=$b
+                PF_CONFLICT_SUBJECT=$(git log -1 --format='%h %s' "$ci")
+                # conflicted paths are the stage 1/2/3 lines: "<mode> <oid> <stage>\t<path>"
+                PF_CONFLICT_FILES=$(printf '%s\n' "$out" \
+                    | awk -F'\t' 'NF==2 && $1 ~ /[0-9]$/ {print $2}' | sort -u | paste -sd' ' -)
+                [[ -n $PF_CONFLICT_FILES ]] || PF_CONFLICT_FILES='(files unknown)'
+                return 1
+            fi
+            tree=$(printf '%s\n' "$out" | head -1)
+            cur=$(git commit-tree "$tree" -p "$cur" -m preflight) || return 2
+        done < <(git rev-list --reverse "$a..$b")
+        a=$cur
+    done
+    return 0
+}
+
+# Run the check and set PF_STATUS = clean | conflict | unsupported | skipped
+run_preflight() {
+    if ! $PREFLIGHT; then PF_STATUS=skipped; return; fi
+    if ! preflight_supported; then PF_STATUS=unsupported; return; fi
+    if preflight_check; then PF_STATUS=clean; else PF_STATUS=conflict; fi
+}
+
+# ─── step 4: confirm ─────────────────────────────────────────────────────────
 show_plan() {
     local i b n_total=0 ahead prev=$BASE up
     printf '\n%splan%s  %s(%s @ %s)%s\n\n' "$B" "$R" "$D" "$BASE" \
@@ -374,7 +441,7 @@ show_plan() {
                "$CYN" "$b" "$R" "$D" "$ahead" "$R" "$D" "$prev" "$R"
         prev=$b
     done
-    printf '\n   %s%s%s fast-forwards to %s%s%s  %s(+%s commits, one straight line)%s\n' \
+    printf '\n   %s%s%s can then fast-forward to %s%s%s  %s(+%s commits, one straight line — opt-in)%s\n' \
            "$BLU" "$BASE" "$R" "$CYN" "${CHAIN[-1]}" "$R" "$D" "$n_total" "$R"
 
     printf '\n%scommands%s\n' "$B" "$R"
@@ -383,8 +450,24 @@ show_plan() {
         printf '   %sgit checkout %s && git rebase %s%s\n' "$D" "$b" "$prev" "$R"
         prev=$b
     done
-    printf '   %sgit checkout %s && git merge --ff-only %s%s\n' "$D" "$BASE" "${CHAIN[-1]}" "$R"
+    if $DO_FF; then
+        printf '   %sgit checkout %s && git merge --ff-only %s%s   %s← separate y/N afterwards%s\n' \
+               "$D" "$BASE" "${CHAIN[-1]}" "$R" "$D" "$R"
+    fi
     $DELETE && printf '   %sgit branch -d %s%s\n' "$D" "${CHAIN[*]}" "$R"
+
+    # pre-flight verdict (computed before this is shown)
+    printf '\n%scheck%s   ' "$B" "$R"
+    case ${PF_STATUS:-skipped} in
+        clean)       printf '%s✓ clean%s — the whole chain rebases without conflict.\n' "$GRN" "$R" ;;
+        conflict)    printf '%s✗ will conflict%s rebasing %s%s%s at %s\n' \
+                            "$RED" "$R" "$CYN" "$PF_CONFLICT_BRANCH" "$R" "$PF_CONFLICT_SUBJECT"
+                     printf '          in %s%s%s\n' "$D" "$PF_CONFLICT_FILES" "$R"
+                     printf '          %snothing will be touched — reorder to avoid it, or rerun with --no-preflight.%s\n' \
+                            "$D" "$R" ;;
+        unsupported) printf '%s? skipped%s — this git lacks `merge-tree --write-tree` (needs ≥ 2.38).\n' "$YEL" "$R" ;;
+        skipped)     printf '%s? skipped%s (--no-preflight) — conflicts resolved as you go.\n' "$YEL" "$R" ;;
+    esac
 
     # Only *remote* upstreams matter here — a branch that merely tracks a local
     # branch (git's default when you branch off dev) needs no force-push.
@@ -441,35 +524,106 @@ run_chain() {
         save_state "$PREV" ${TODO[@]+"${TODO[@]}"}
     done
 
-    printf '\n%s▸ fast-forwarding %s%s\n' "$B$BLU" "$BASE" "$R"
+    ff_step
+    finalize
+}
+
+# ─── step 6: fast-forward the base (separate, opt-in) ────────────────────────
+_apply_ff() {   # _apply_ff <tip>
     run_cmd git checkout --quiet "$BASE" || die "could not check out $BASE"
-    if ! run_cmd git merge --ff-only "$PREV"; then
-        die "$BASE could not fast-forward to $PREV — it must have moved; rerun with --update-base"
+    if ! run_cmd git merge --ff-only "$1"; then
+        die "$BASE could not fast-forward to $1 — it must have moved; rerun with --update-base"
     fi
+    FF_APPLIED=true
+}
 
-    if [[ $DELETE == true ]]; then
-        local b2
-        for b2 in "${CHAIN[@]}"; do
-            [[ $b2 == "$BASE" ]] && continue
-            run_cmd git branch -d "$b2" || warn "kept $b2 (not fully merged?)"
-        done
+# Arm-on-y → live preview → confirm. Advances BASE to the chain tip ($PREV).
+ff_step() {
+    FF_APPLIED=false
+    local tip=$PREV base_sha tip_sha n key lim
+    base_sha=$(git rev-parse --short "$BASE")
+    tip_sha=$(git rev-parse --short "$tip" 2>/dev/null || printf '%s' "$tip")
+    n=$(git rev-list --count "$BASE..$tip" 2>/dev/null || echo 0)
+
+    if ! $DO_FF; then
+        printf '\n%s— base left where it is%s (--no-ff); %s%s%s holds the line at %s.\n' \
+               "$D" "$R" "$CYN" "$tip" "$R" "$tip_sha"
+        return 0
     fi
+    (( n == 0 )) && return 0                       # base already at the tip
 
+    if $DRY; then
+        printf '\n%s+ git checkout %s && git merge --ff-only %s%s   %s(dry run)%s\n' \
+               "$D" "$BASE" "$tip" "$R" "$D" "$R"
+        return 0
+    fi
+    $ASSUME_YES && { _apply_ff "$tip"; return 0; }
+
+    # Open the terminal for reads; if there's no usable tty, skip gracefully.
+    if ! { exec 3</dev/tty; } 2>/dev/null; then
+        printf '\n%s— %s left where it is (no terminal); rerun with -y to fast-forward.%s\n' \
+               "$D" "$BASE" "$R"
+        return 0
+    fi
+    printf '\n%sfast-forward %s%s%s%s to the tip %s%s%s? [y/N] ' \
+           "$B" "$BLU" "$BASE" "$R" "$B" "$CYN" "$tip" "$R"
+    IFS= read -rsn1 key <&3 || { printf '\n'; exec 3<&-; return 0; }
+    if [[ $key != [yY] ]]; then
+        printf '%s\n%s— left %s where it is.%s\n' "$key" "$D" "$BASE" "$R"
+        exec 3<&-; return 0
+    fi
+    printf 'y'
+
+    # ── live preview of exactly what will move ──
+    lim=$(( n < 8 ? n : 8 ))
+    printf '\n\n  %s%s%s  %s%s ─▶ %s%s   %s(+%d commit%s)%s\n' \
+           "$BLU$B" "$BASE" "$R" "$D" "$base_sha" "$tip_sha" "$R" \
+           "$D" "$n" "$([[ $n -eq 1 ]] || echo s)" "$R"
+    git --no-pager log --oneline --decorate --color=always -n "$lim" "$BASE..$tip" \
+        | sed "s/^/    ${CYN}▲${R} /"
+    (( n > lim )) && printf '    %s… %d more%s\n' "$D" $((n-lim)) "$R"
+    printf '    %s%s ◄ %s is here now%s\n' "$D" "$base_sha" "$BASE" "$R"
+
+    printf '\n  %sEnter/y = apply · any other key = cancel%s ' "$B" "$R"
+    IFS= read -rsn1 key <&3 || key=x
+    exec 3<&-
+    case $key in
+        ''|y|Y|$'\n'|$'\r')  printf '\n'; _apply_ff "$tip" ;;
+        *)  printf '%s\n  %s— cancelled; %s left at %s.%s\n' "$key" "$D" "$BASE" "$base_sha" "$R" ;;
+    esac
+}
+
+# ─── finish: delete folded branches (opt-in) + summary ───────────────────────
+finalize() {
     clear_state
-
     if $DRY; then
         printf '\n%s✓ dry run%s — nothing was changed.\n\n' "$YEL" "$R"
         return 0
     fi
 
-    local total
-    total=$(git rev-list --count "$ORIG_BASE_SHA..$BASE")
-    printf '\n%s✓ linearized%s  %s%s%s  %s → %s%s  %s(%d branches, +%d commits, one straight line)%s\n' \
-           "$GRN" "$R" "$BLU" "$BASE" "$R" \
-           "${ORIG_BASE_SHA:0:9}" "$(git rev-parse --short "$BASE")" "$R" \
-           "$D" "${#CHAIN[@]}" "$total" "$R"
+    if $DELETE && $FF_APPLIED; then
+        local b2
+        for b2 in "${CHAIN[@]}"; do
+            [[ $b2 == "$BASE" ]] && continue
+            run_cmd git branch -d "$b2" || warn "kept $b2 (not fully merged?)"
+        done
+    elif $DELETE; then
+        warn "kept the feature branches — $BASE wasn't fast-forwarded, so they still hold the line."
+    fi
+
+    printf '\n%s✓ linearized%s  ' "$GRN" "$R"
+    if $FF_APPLIED; then
+        local total; total=$(git rev-list --count "$ORIG_BASE_SHA..$BASE")
+        printf '%s%s%s %s → %s%s  %s(%d branch%s, +%d commits, one line)%s\n' \
+               "$BLU" "$BASE" "$R" "${ORIG_BASE_SHA:0:9}" "$(git rev-parse --short "$BASE")" "$R" \
+               "$D" "${#CHAIN[@]}" "$([[ ${#CHAIN[@]} -eq 1 ]] && echo '' || echo es)" "$total" "$R"
+    else
+        printf '%s%d branch%s%s stacked into one line; %s%s%s holds the tip. %s%s not moved.%s\n' \
+               "$CYN" "${#CHAIN[@]}" "$([[ ${#CHAIN[@]} -eq 1 ]] && echo '' || echo es)" "$R" \
+               "$CYN" "$PREV" "$R" "$D" "$BASE" "$R"
+    fi
     printf '  %sundo everything:%s %s --undo\n\n' "$D" "$R" "$0"
-    git --no-pager log --oneline --graph --decorate -n "$(( total + 3 ))" "$BASE" 2>/dev/null || true
+    git --no-pager log --oneline --graph --decorate -n 14 "$PREV" 2>/dev/null || true
 }
 
 # ─── entry points ────────────────────────────────────────────────────────────
@@ -568,7 +722,15 @@ for b in "${CHAIN[@]}"; do
     AHEAD[$b]=$(git rev-list --count "$BASE..$b")
 done
 
+run_preflight          # sets PF_STATUS, shown inside show_plan
 show_plan
+
+# The whole point: if the chain WILL conflict, change nothing.
+if [[ $PF_STATUS == conflict ]]; then
+    printf '%saborted — nothing was changed.%s\n\n' "$RED" "$R" >&2
+    exit 1
+fi
+
 confirm || { info "cancelled."; exit 0; }
 
 $DRY || record_undo "$BASE" "${CHAIN[@]}"
