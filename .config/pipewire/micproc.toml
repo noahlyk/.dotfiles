@@ -49,6 +49,7 @@ preamp-db = 3.0
 # stage can't avoid. Costs a fixed ~10ms of latency on that lane (480-sample
 # frames @ 48kHz); out_fast_* never pays it.
 enabled = true
+disable-output-fast = true
 
 [[stages]]
 type = "stereo2mono"
