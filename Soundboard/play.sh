@@ -106,7 +106,7 @@ fi
 echo "Playing: $MATCHING_FILE at volume $VOLUME"
 
 VOLUME_INT=$(awk "BEGIN {printf \"%.0f\", $VOLUME * 65536}")
-paplay -d "input.vmic" --volume="${VOLUME_INT:-65536}" "$MATCHING_FILE" &
+paplay -d "vinput" --volume="${VOLUME_INT:-65536}" "$MATCHING_FILE" &
 PID1=$!
 echo "$PID1" >> "$PID_FILE"
 wait $PID1
