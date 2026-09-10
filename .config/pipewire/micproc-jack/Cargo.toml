@@ -9,6 +9,7 @@ arc-swap = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 notify = { version = "8", default-features = false }
+nnnoiseless = "0.5.2"
 
 [profile.release]
 lto = "fat"

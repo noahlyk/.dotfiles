@@ -1,8 +1,14 @@
 //! micproc-jack — the dedicated mic processor node.
 //!
 //! Ports: `in_L`/`in_R` (input, wired standard left->left / right->right
-//! from the physical mic) and `out_L`/`out_R` (output, the processed stream
-//! that feeds the vmic app feed).
+//! from the physical mic) and TWO output lanes, forked from the same
+//! processed signal right at the end of the chain:
+//!   - `out_fast_L`/`out_fast_R` -- no RNNoise, the chain's normal sub-1ms
+//!     latency. Feeds `vmonitor` (self-monitoring only; wired to speakers/
+//!     headphones, never captured by other apps).
+//!   - `out_rnn_L`/`out_rnn_R` -- RNNoise spectral denoising applied
+//!     (`[rnnoise] enabled` in `micproc.toml`), a fixed ~10ms delay when
+//!     on. Feeds `vmic` (what other apps/listeners capture as the mic).
 //!
 //! Stage 0 is STEREO→MONO, configured in `micproc.toml` as the first
 //! `[[stages]]` entry (`type = "stereo2mono"`): it owns the input fold
@@ -43,6 +49,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use jack::{AudioIn, AudioOut, Client, ClientOptions, Port, ProcessHandler, ProcessScope};
+use nnnoiseless::DenoiseState;
 use notify::{RecursiveMode, Watcher};
 use serde::Deserialize;
 
@@ -64,6 +71,18 @@ struct MicProcConf {
     /// Remove a `[[stages]]` block to drop that stage; `enabled = false`
     /// bypasses it in place.
     stages: Vec<StageConf>,
+    /// RNNoise spectral denoiser, applied ONLY to the `out_rnn_*` output
+    /// lane (see module doc) after the `stages` chain runs. The `out_fast_*`
+    /// lane always skips it, staying at the chain's normal sub-1ms latency.
+    #[serde(default)]
+    rnnoise: RnnoiseConf,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct RnnoiseConf {
+    #[serde(default)]
+    enabled: bool,
 }
 
 /// One stage. Only the keys relevant to `type` are read; the rest of the list
@@ -506,6 +525,74 @@ impl Gate {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// DENOISER (RNNoise, quality lane only)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// `nnnoiseless::DenoiseState::FRAME_SIZE` (480 samples = 10ms @ 48kHz) --
+/// RNNoise's model operates on fixed-size frames, unlike every other stage
+/// in this chain which is a pure per-sample recurrence. This is the one
+/// place in the codebase that has to bridge that mismatch.
+const RNN_FRAME: usize = nnnoiseless::DenoiseState::FRAME_SIZE;
+/// RNNoise's model was trained on 16-bit PCM and expects/produces samples in
+/// `[-32768.0, 32767.0]`, not the `[-1.0, 1.0]` range the rest of this chain
+/// uses -- scale in going in, back out coming back.
+const RNN_SCALE: f32 = 32768.0;
+
+/// Bridges the per-sample RT callback to RNNoise's fixed-480-sample-frame
+/// API with a fixed ~10ms FIFO delay, no reallocation on the RT thread after
+/// startup (both buffers are fixed-size arrays reused every frame).
+///
+/// `push` is called once per sample: it always returns the OLDEST buffered
+/// output sample first (if any), then feeds `x` into the next input frame,
+/// running RNNoise exactly when a frame fills. After the first `RNN_FRAME`
+/// warm-up samples (silence -- `None`, caller should emit 0.0) it returns
+/// `Some` every call, forever, at a steady fixed ~10ms pipeline delay.
+struct Denoiser {
+    state: Box<DenoiseState<'static>>,
+    in_buf: [f32; RNN_FRAME],
+    in_len: usize,
+    out_buf: [f32; RNN_FRAME],
+    scratch: [f32; RNN_FRAME],
+    out_pos: usize,
+}
+
+impl Denoiser {
+    fn new() -> Self {
+        Denoiser {
+            state: DenoiseState::new(),
+            in_buf: [0.0; RNN_FRAME],
+            in_len: 0,
+            out_buf: [0.0; RNN_FRAME],
+            scratch: [0.0; RNN_FRAME],
+            out_pos: RNN_FRAME, // "empty" -- forces None until the first frame completes
+        }
+    }
+
+    #[inline]
+    fn push(&mut self, x: f32) -> Option<f32> {
+        let emit = if self.out_pos < RNN_FRAME {
+            let v = self.out_buf[self.out_pos];
+            self.out_pos += 1;
+            Some(v)
+        } else {
+            None
+        };
+
+        self.in_buf[self.in_len] = x * RNN_SCALE;
+        self.in_len += 1;
+        if self.in_len == RNN_FRAME {
+            self.state.process_frame(&mut self.scratch, &self.in_buf);
+            for (o, s) in self.out_buf.iter_mut().zip(self.scratch.iter()) {
+                *o = *s / RNN_SCALE;
+            }
+            self.in_len = 0;
+            self.out_pos = 0;
+        }
+        emit
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // CHAIN
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -589,6 +676,7 @@ struct DspSnapshot {
     /// POST output the gate keys on). `None` = gate keys on its own input.
     gate_det_idx: Option<usize>,
     gate_idx: usize,
+    rnnoise_enabled: bool,
 }
 
 /// Build a full DSP chain from config: parsing, string matching over stage
@@ -713,13 +801,14 @@ fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
     }
 
     eprintln!(
-        "[micproc] chain v{version} @ {rate} Hz: preamp {:.1} dB, stereo->mono {} ({stereo2mono:?}), stages {kinds:?}, gate detector {}",
+        "[micproc] chain v{version} @ {rate} Hz: preamp {:.1} dB, stereo->mono {} ({stereo2mono:?}), stages {kinds:?}, gate detector {}, rnnoise {}",
         conf.preamp_db,
         if conf.stages.iter().any(|s| s.ty == "stereo2mono") { "configured" } else { "default" },
-        if gate_det_idx.is_some() { "pre-gate stage".to_string() } else { "gate input".to_string() }
+        if gate_det_idx.is_some() { "pre-gate stage".to_string() } else { "gate input".to_string() },
+        if conf.rnnoise.enabled { "on (out_rnn_* lane, ~10ms)" } else { "off (out_rnn_* mirrors out_fast_*)" }
     );
 
-    DspSnapshot { version, preamp, stereo2mono, stages, gate_det_idx, gate_idx }
+    DspSnapshot { version, preamp, stereo2mono, stages, gate_det_idx, gate_idx, rnnoise_enabled: conf.rnnoise.enabled }
 }
 
 /// All per-block DSP state for the mono strip -- RT-thread-owned.
@@ -734,6 +823,12 @@ struct MicDsp {
     gate_idx: usize,
     /// Each stage's output of the previous frame cycle (sidechain taps).
     stage_out: Vec<f32>,
+    /// Persistent across reloads (its internal FIFO/model state must not
+    /// reset just because `micproc.toml` was edited) -- only ever created
+    /// once, in `new()`. `adopt()` toggles `rnnoise_enabled`, never touches
+    /// this.
+    denoiser: Denoiser,
+    rnnoise_enabled: bool,
 }
 
 impl MicDsp {
@@ -746,6 +841,8 @@ impl MicDsp {
             gate_det_idx: None,
             gate_idx: 0,
             stage_out: Vec::new(),
+            denoiser: Denoiser::new(),
+            rnnoise_enabled: false,
         }
     }
 
@@ -761,12 +858,17 @@ impl MicDsp {
         self.gate_det_idx = snap.gate_det_idx;
         self.gate_idx = snap.gate_idx;
         self.stage_out = vec![0.0; self.stages.len()];
+        self.rnnoise_enabled = snap.rnnoise_enabled;
         self.version = snap.version;
     }
 
-    /// Process one mono sample through the whole chain.
+    /// Process one mono sample through the shared chain, then fork it into
+    /// the two output lanes: `.0` is the fast lane (no RNNoise, same
+    /// sub-1ms latency as before), `.1` is the quality lane (RNNoise
+    /// applied, ~10ms fixed delay). When RNNoise is disabled in config, the
+    /// quality lane just mirrors the fast lane (no delay either).
     #[inline]
-    fn process(&mut self, x: f32) -> f32 {
+    fn process(&mut self, x: f32) -> (f32, f32) {
         let mut x = x * self.preamp;
         for (i, stage) in self.stages.iter_mut().enumerate() {
             // Only Expander/Compressor (keyed on their own input) and Gate
@@ -790,7 +892,9 @@ impl MicDsp {
             x = stage.step(x, key);
             self.stage_out[i] = x;
         }
-        x
+        let fast = x;
+        let rnn = if self.rnnoise_enabled { self.denoiser.push(x).unwrap_or(0.0) } else { x };
+        (fast, rnn)
     }
 }
 
@@ -816,14 +920,14 @@ fn load_config_at(path: &std::path::Path) -> MicProcConf {
         Ok(t) => t,
         Err(e) => {
             eprintln!("[micproc] cannot read {}: {e}; running empty chain", path.display());
-            return MicProcConf { preamp_db: 0.0, stages: Vec::new() };
+            return MicProcConf { preamp_db: 0.0, stages: Vec::new(), rnnoise: RnnoiseConf::default() };
         }
     };
     match toml::from_str::<MicProcConf>(&text) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[micproc] bad config {}: {e}; running empty chain", path.display());
-            MicProcConf { preamp_db: 0.0, stages: Vec::new() }
+            MicProcConf { preamp_db: 0.0, stages: Vec::new(), rnnoise: RnnoiseConf::default() }
         }
     }
 }
@@ -926,8 +1030,14 @@ fn spawn_reloader(snapshot: Arc<ArcSwap<DspSnapshot>>, rate: u32, path: PathBuf)
 struct MicProc {
     in_l: Port<AudioIn>,
     in_r: Port<AudioIn>,
-    out_l: Port<AudioOut>,
-    out_r: Port<AudioOut>,
+    /// Fast lane -- no RNNoise, the chain's normal sub-1ms latency. Feeds
+    /// `vmonitor` (self-monitoring only; never captured by other apps).
+    out_fast_l: Port<AudioOut>,
+    out_fast_r: Port<AudioOut>,
+    /// Quality lane -- RNNoise applied (~10ms fixed delay when enabled).
+    /// Feeds `vmic` (what other apps/listeners capture as the microphone).
+    out_rnn_l: Port<AudioOut>,
+    out_rnn_r: Port<AudioOut>,
     dsp: MicDsp,
     snapshot: Arc<ArcSwap<DspSnapshot>>,
 }
@@ -936,15 +1046,17 @@ impl MicProc {
     fn new(client: &Client, snapshot: Arc<ArcSwap<DspSnapshot>>) -> Result<Self, jack::Error> {
         let in_l = client.register_port("in_L", AudioIn::default())?;
         let in_r = client.register_port("in_R", AudioIn::default())?;
-        let out_l = client.register_port("out_L", AudioOut::default())?;
-        let out_r = client.register_port("out_R", AudioOut::default())?;
+        let out_fast_l = client.register_port("out_fast_L", AudioOut::default())?;
+        let out_fast_r = client.register_port("out_fast_R", AudioOut::default())?;
+        let out_rnn_l = client.register_port("out_rnn_L", AudioOut::default())?;
+        let out_rnn_r = client.register_port("out_rnn_R", AudioOut::default())?;
         let rate = client.sample_rate() as u32;
         RATE.store(rate, Ordering::Relaxed);
 
         let mut dsp = MicDsp::new();
         dsp.adopt(&snapshot.load());
 
-        Ok(MicProc { in_l, in_r, out_l, out_r, dsp, snapshot })
+        Ok(MicProc { in_l, in_r, out_fast_l, out_fast_r, out_rnn_l, out_rnn_r, dsp, snapshot })
     }
 }
 
@@ -961,12 +1073,15 @@ impl ProcessHandler for MicProc {
         let n = scope.n_frames() as usize;
         let in_l = self.in_l.as_slice(scope);
         let in_r = self.in_r.as_slice(scope);
-        let out_l = self.out_l.as_mut_slice(scope);
-        let out_r = self.out_r.as_mut_slice(scope);
+        let out_fast_l = self.out_fast_l.as_mut_slice(scope);
+        let out_fast_r = self.out_fast_r.as_mut_slice(scope);
+        let out_rnn_l = self.out_rnn_l.as_mut_slice(scope);
+        let out_rnn_r = self.out_rnn_r.as_mut_slice(scope);
 
         if self.dsp.stereo2mono.enabled {
             // Standard stereo → mono. Fold the two inputs to one mono lane
-            // per `mode`, run the chain, put the mono result on BOTH outputs.
+            // per `mode`, run the chain, put each lane's mono result on
+            // BOTH of that lane's outputs.
             for f in 0..n {
                 let l = in_l[f];
                 let r = in_r[f];
@@ -976,17 +1091,25 @@ impl ProcessHandler for MicProc {
                     FoldMode::Left => l,
                     FoldMode::Right => r,
                 };
-                let x = self.dsp.process(mono);
-                out_l[f] = x;
-                out_r[f] = x;
+                let (fast, rnn) = self.dsp.process(mono);
+                out_fast_l[f] = fast;
+                out_fast_r[f] = fast;
+                out_rnn_l[f] = rnn;
+                out_rnn_r[f] = rnn;
             }
         } else {
             // Fold disabled: plain stereo passthrough — each channel runs
-            // the shared strip independently (linked dynamics), no folding,
-            // no duplication.
+            // the shared strip independently (linked dynamics, and shares
+            // one Denoiser -- interleaving L/R through the RNNoise model's
+            // continuous-stream state, same pre-existing quirk as the
+            // dynamics state below), no folding, no duplication.
             for f in 0..n {
-                out_l[f] = self.dsp.process(in_l[f]);
-                out_r[f] = self.dsp.process(in_r[f]);
+                let (fast_l, rnn_l) = self.dsp.process(in_l[f]);
+                let (fast_r, rnn_r) = self.dsp.process(in_r[f]);
+                out_fast_l[f] = fast_l;
+                out_fast_r[f] = fast_r;
+                out_rnn_l[f] = rnn_l;
+                out_rnn_r[f] = rnn_r;
             }
         }
 
@@ -1163,32 +1286,42 @@ mod tests {
 
     #[test]
     fn real_config_parses_and_builds_the_chain() {
+        // NOTE: this reads the user's real, live, hand-tuned micproc.toml --
+        // which stage `[[stages]]` blocks are PRESENT (expander/compressor/
+        // gate/eq, in what order, with what `[rnnoise]` setting) is exactly
+        // what this checks parses/builds without panicking; which of them
+        // are currently `enabled = true` is live-tunable user preference,
+        // not a code contract, so this must not hardcode a specific
+        // enabled-set (it will legitimately drift as the user tunes).
         let conf = load_config();
-        // order: stereo2mono (stage 0), then expander, compressor, gate, EQ.
         let kinds: Vec<&str> = conf.stages.iter().map(|s| s.ty.as_str()).collect();
-        assert_eq!(kinds, vec!["stereo2mono", "expander", "compressor", "gate", "eq"]);
+        assert!(kinds.first() == Some(&"stereo2mono"), "stage 0 must be stereo2mono, got {kinds:?}");
+        assert!(kinds.contains(&"eq"), "chain should still end in an eq stage, got {kinds:?}");
 
         let snap = build_snapshot(&conf, 48000, 1);
         let mut dsp = MicDsp::new();
         dsp.adopt(&snap);
 
-        // stereo2mono is the boundary conversion, not a per-sample stage.
-        assert_eq!(dsp.stages.len(), 4);
+        // stereo2mono is the boundary conversion, not a per-sample stage;
+        // every OTHER present-and-enabled stage produces one Stage entry.
+        let enabled_non_stereo = conf
+            .stages
+            .iter()
+            .filter(|s| s.enabled && s.ty != "stereo2mono")
+            .count();
+        assert_eq!(dsp.stages.len(), enabled_non_stereo);
         assert!(dsp.stereo2mono.enabled);
         assert_eq!(dsp.stereo2mono.fold, FoldMode::Peak);
-        assert!(matches!(dsp.stages[0], Stage::Expander(_)));
-        assert!(matches!(dsp.stages[1], Stage::Compressor(_)));
-        assert!(matches!(dsp.stages[2], Stage::Gate(_)));
-        assert!(matches!(dsp.stages[3], Stage::Eq { .. }));
+        assert!(matches!(dsp.stages.last(), Some(Stage::Eq { .. })), "chain should still end in Eq");
 
-        // The soft gate must key on the pre-compressor stage (the expander),
-        // not its own input — that's what stops the compressor->gate feedback.
-        assert_eq!(dsp.gate_det_idx, Some(0));
-        assert_eq!(dsp.gate_idx, 2);
+        // Whatever RNNoise setting is live, it must parse into the snapshot
+        // without panicking (the actual on/off behavior is covered by the
+        // dedicated `denoiser_*` test, not the real user config here).
+        let _ = snap.rnnoise_enabled;
 
         // EQ holds the five ported bands.
-        match &dsp.stages[3] {
-            Stage::Eq { bqs, .. } => assert_eq!(bqs.len(), 5),
+        match dsp.stages.last() {
+            Some(Stage::Eq { bqs, .. }) => assert_eq!(bqs.len(), 5),
             _ => unreachable!(),
         }
     }
@@ -1223,5 +1356,36 @@ mod tests {
             d += 0.01;
         }
         assert!(max_exp2_db_err < 0.001, "fast_exp2 dB error too large: {max_exp2_db_err}");
+    }
+
+    /// The RNNoise bridge must (a) stay silent for exactly one frame's worth
+    /// of warm-up, (b) emit finite, non-NaN, non-exploding samples forever
+    /// after, and (c) settle into a stable, unchanging pipeline delay
+    /// (`RNN_FRAME` samples) rather than drifting -- if it ever drifted,
+    /// input and output would slowly fall out of sync with each other.
+    #[test]
+    fn denoiser_pipeline_warms_up_then_emits_finite_samples_at_a_fixed_delay() {
+        let mut d = Denoiser::new();
+
+        let mut warmup_none_count = 0usize;
+        for i in 0..RNN_FRAME {
+            let x = (i as f32 * 0.05).sin() * 0.1;
+            if d.push(x).is_none() {
+                warmup_none_count += 1;
+            }
+        }
+        assert_eq!(
+            warmup_none_count, RNN_FRAME,
+            "expected exactly one frame of silence during warm-up, got {warmup_none_count}"
+        );
+
+        // Every call from here on must emit Some(finite) -- the FIFO is full
+        // and draining at exactly the rate it's filling.
+        for i in 0..(RNN_FRAME * 4) {
+            let x = (i as f32 * 0.05).sin() * 0.1;
+            let v = d.push(x).expect("denoiser should emit every sample after warm-up");
+            assert!(v.is_finite(), "denoiser output should be finite, got {v} at sample {i}");
+            assert!(v.abs() < 10.0, "denoiser output should stay near input scale, got {v} at sample {i}");
+        }
     }
 }

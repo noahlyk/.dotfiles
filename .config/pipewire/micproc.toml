@@ -23,8 +23,26 @@
 #     enabled = false = plain stereo passthrough (no fold, no duplication).
 #   - The gate's `detector` picks which EARLIER stage's level opens it —
 #     keep "expander" so the compressor's makeup gain can't re-open it.
+#
+# All of the above (preamp + [[stages]]) runs ONCE, then the result forks
+# into TWO output lanes (see micproc-jack's module doc for the port list):
+#   - out_fast_* -- always exactly this chain's output, no further delay.
+#     Feeds `vmonitor` (your own headphones only).
+#   - out_rnn_*  -- ALSO passed through RNNoise (below) when enabled. Feeds
+#     `vmic` (what other apps / listeners capture as the microphone).
+# So tuning the stages above shapes BOTH lanes; [rnnoise] only affects the
+# quality/broadcast lane.
 
 preamp-db = 3.0
+
+[rnnoise]
+# Spectral/ML noise separation (nnnoiseless, a Rust RNNoise port) on the
+# out_rnn_* lane only -- unlike the expander/gate above, it can tell voice
+# and background noise apart even while BOTH are present at once, so it
+# doesn't have the "noise rides in behind your voice" problem a level-based
+# stage can't avoid. Costs a fixed ~10ms of latency on that lane (480-sample
+# frames @ 48kHz); out_fast_* never pays it.
+enabled = true
 
 [[stages]]
 type = "stereo2mono"
@@ -34,20 +52,24 @@ mode = "peak"
 [[stages]]
 type = "expander"
 # Folds everything below `threshold-db` down by `ratio`, floored at `range-db`
-# (a gentle noise reducer, not a mute hole).
+# (a gentle noise reducer, not a mute hole). Now that RNNoise (above) does
+# the real noise-vs-voice separation on the broadcast lane, this can stay
+# gentle -- it mainly matters for out_fast_* (your own monitor), which
+# never gets RNNoise.
 enabled = true
-threshold-db = -45.0
-ratio = 4.0
-knee-db = 3.0
-range-db = -28.0
-attack-ms = 1.0
-release-ms = 80.0
+threshold-db = -48.0
+ratio = 2.5
+knee-db = 10.0
+range-db = -22.0
+attack-ms = 3.0
+release-ms = 150.0
+detector-ms = 10.0
 
 [[stages]]
 type = "compressor"
 # Brings the voice up to the right area; `makeup-db` is the constant gain
-# applied after reduction.
-enabled = true
+# applied after reduction. Off for now (independent of the RNNoise work).
+enabled = false
 threshold-db = -18.0
 ratio = 3.5
 makeup-db = 0.0
@@ -59,16 +81,18 @@ release-ms = 30.0
 type = "gate"
 # Smart soft gate: hysteresis (opens at `threshold-db`, only closes
 # `hysteresis-db` lower), a hold window (no syllable chopping), floored steep
-# expansion down to `range-db` (soft fade, never a hard mute).
+# expansion down to `range-db` (soft fade, never a hard mute). Real silence
+# should still be fully muted regardless of how gentle RNNoise/expander are.
 enabled = true
-threshold-db = -45.0
-ratio = 8.0
-knee-db = 6.0
+threshold-db = -55.0
+ratio = 6.0
+knee-db = 8.0
 range-db = -30.0
-hysteresis-db = 6.0
-hold-ms = 80.0
+hysteresis-db = 8.0
+hold-ms = 220.0
 attack-ms = 4.0
-release-ms = 70.0
+release-ms = 200.0
+detector-ms = 10.0
 detector = "expander"
 
 [[stages]]
@@ -84,4 +108,3 @@ band = [
   { type = "PK", freq = 1300,  gain-db = -9.4, q = 4.4 },
   { type = "HS", freq = 8300,  gain-db =  2.2,  q = 1.3 },
 ]
-

@@ -1,18 +1,26 @@
 //! PipeWire Links Manager
 //!
-//! Declarative audio/MIDI wiring for this machine:
+//! Declarative audio/MIDI wiring for this machine, TWO output lanes since
+//! micproc-jack forks its processed signal in two:
 //!
-//!   Komplete mic -> micproc (processed) -> the "vmic" app feed (so apps
-//!     record it)
-//!   vmic monitor -> the default speaker device (so you hear your voice
-//!     mixed with whatever apps play; if the default speaker IS the vmic,
-//!     its connections are left alone)
+//!   Komplete mic -> micproc -> forked into:
+//!     - out_rnn_*  (RNNoise quality lane) -> the "vmic" app feed (what
+//!       other apps/listeners capture as the microphone)
+//!     - out_fast_* (no-RNNoise, chain's normal sub-1ms latency) -> the
+//!       "vmonitor" app feed (self-monitoring ONLY)
+//!   vmonitor monitor -> the default speaker device (so you hear your own
+//!     fast-lane voice mixed with whatever apps play). "vmic"'s monitor is
+//!     deliberately NEVER wired to your speakers -- doing so would mean
+//!     hearing your own voice twice, at two different delays (RNNoise's
+//!     ~10ms vs. the fast lane's), an audible echo/comb-filter artifact.
+//!     If the default speaker IS vmic or vmonitor itself, left alone.
 //!   apps -> the default speaker device (WirePlumber's normal routing; the
-//!     mic arrives there through the vmic-monitor tap)
-//!   Oxygen 49 MIDI -> fluidsynth (on-demand) -> the "vmic" app feed
+//!     mic arrives there through the vmonitor tap)
+//!   Oxygen 49 MIDI -> fluidsynth (on-demand) -> BOTH the "vmic" and
+//!     "vmonitor" app feeds (so the synth is audible to you AND listeners)
 //!   ~/Soundboard/play.sh -> the default speaker device
 //!
-//! The routing is described by the `routes()` table, the vmic-monitor rule
+//! The routing is described by the `routes()` table, the vmonitor rule
 //! and the synth rule.
 //!
 //! Purely event-driven: this is a persistent PipeWire client (via the
@@ -68,7 +76,12 @@ const PENDING_LINK_TTL: Duration = Duration::from_secs(2);
 
 const NAME_MIC: &str = "Komplete";
 const NAME_MICPROC: &str = "micproc";
+/// The quality/broadcast lane -- what apps capture as the mic. "vmic" is
+/// NOT a substring of "vmonitor" (and vice versa), so `Device` matching by
+/// substring cleanly tells the two nodes apart.
 const NAME_VMIC: &str = "vmic";
+/// The fast/self-monitor lane -- routed only to your own speakers.
+const NAME_VMONITOR: &str = "vmonitor";
 // Matches the synth's single JACK node ("fluidsynth-midi": MIDI-in port +
 // audio-out ports on one node), as well as the old PulseAudio layout
 // ("FluidSynth" audio + "FLUID Synth (pid)" MIDI).
@@ -94,9 +107,13 @@ const fn dev(node: &'static str, port: &'static str) -> Device {
 
 const MIC_INPUT: Device = dev(NAME_MIC, "capture_");
 const MICPROC_INPUT: Device = dev(NAME_MICPROC, "in_");
-const MICPROC_OUTPUT: Device = dev(NAME_MICPROC, "out_");
+/// Quality/broadcast lane output (RNNoise applied) -- feeds `vmic`.
+const MICPROC_OUT_RNN: Device = dev(NAME_MICPROC, "out_rnn_");
+/// Fast/self-monitor lane output (no RNNoise) -- feeds `vmonitor`.
+const MICPROC_OUT_FAST: Device = dev(NAME_MICPROC, "out_fast_");
 const VMIC_SINK_IN: Device = dev(NAME_VMIC, "playback_");
-const VMIC_MONITOR: Device = dev(NAME_VMIC, "monitor_");
+const VMONITOR_SINK_IN: Device = dev(NAME_VMONITOR, "playback_");
+const VMONITOR_MONITOR: Device = dev(NAME_VMONITOR, "monitor_");
 const KEYBOARD_OUT: Device = dev("", "Oxygen");
 const SYNTH_ANY: Device = dev(NAME_SYNTH, "");
 
@@ -124,7 +141,10 @@ fn pairs_exclusive(src: Device, dst: Device, map: &'static [(&'static str, &'sta
 fn routes() -> Vec<Route> {
     vec![
         pairs_exclusive(MIC_INPUT, MICPROC_INPUT, &[("FL", "in_L"), ("FR", "in_R")]),
-        pairs(MICPROC_OUTPUT, VMIC_SINK_IN, &[("L", "playback_FL"), ("R", "playback_FR")]),
+        // Quality/broadcast lane -> vmic (what apps capture as the mic).
+        pairs(MICPROC_OUT_RNN, VMIC_SINK_IN, &[("L", "playback_FL"), ("R", "playback_FR")]),
+        // Fast/self-monitor lane -> vmonitor (your speakers only).
+        pairs(MICPROC_OUT_FAST, VMONITOR_SINK_IN, &[("L", "playback_FL"), ("R", "playback_FR")]),
     ]
 }
 
@@ -454,18 +474,22 @@ impl Manager {
     // ── route engine ───────────────────────────────────────────────
 
     fn apply_routes(&mut self) {
-        self.ensure_vmic();
+        self.ensure_virtual_sinks();
         for route in routes() {
             self.apply_route(route);
         }
-        self.apply_vmic_monitor_route();
+        self.apply_vmonitor_route();
         self.apply_synth_route();
         self.unroute_stray_mix_links();
     }
 
-    fn apply_vmic_monitor_route(&mut self) {
+    /// vmonitor's monitor tap -> the default speaker device. This is the
+    /// ONLY self-listen path: vmic's monitor is left alone here entirely
+    /// (apps capture from it; it must never also reach your own speakers,
+    /// or you'd hear your own voice twice at two different delays).
+    fn apply_vmonitor_route(&mut self) {
         let Some(default) = self.default_sink.clone() else { return };
-        if default.contains(NAME_VMIC) {
+        if default.contains(NAME_VMIC) || default.contains(NAME_VMONITOR) {
             return;
         }
 
@@ -474,7 +498,7 @@ impl Manager {
             return;
         }
 
-        for monitor in self.resolved_ports(&VMIC_MONITOR, PortKind::AudioOut) {
+        for monitor in self.resolved_ports(&VMONITOR_MONITOR, PortKind::AudioOut) {
             let Some(ch) = monitor.channel() else { continue };
             let want = format!("playback_{ch}");
             if let Some(sink) = sinks.iter().find(|s| s.name == want) {
@@ -487,7 +511,7 @@ impl Manager {
             for &(out_id, in_id) in self.links.values() {
                 let Some(src) = self.rport(out_id) else { continue };
                 let Some(dst) = self.rport(in_id) else { continue };
-                if src.device.contains(NAME_VMIC)
+                if src.device.contains(NAME_VMONITOR)
                     && src.name.starts_with("monitor_")
                     && !(dst.device == default && dst.name.starts_with("playback_"))
                 {
@@ -509,26 +533,29 @@ impl Manager {
         Some(RPort { id, node_id: info.node_id, device: device.clone(), name: info.name.clone() })
     }
 
-    /// Make sure the virtual mic exists for applications to record. The
-    /// vmic filter-chain (pipewire.conf.d/99-vmic.conf) provides it at
-    /// PipeWire startup; as a fallback we can provision a Pulse null-sink so
-    /// apps always have something to pick. This is the one remaining
-    /// subprocess spawn in the routine path, and only actually runs if vmic
+    /// Make sure both virtual mic nodes (`vmic`, `vmonitor`) exist. The
+    /// filter-chain (pipewire.conf.d/99-vmic.conf) provides both at PipeWire
+    /// startup; as a fallback we can provision a Pulse null-sink each so
+    /// there's always something to route to/pick. This is the one remaining
+    /// subprocess spawn in the routine path, and only actually runs if one
     /// is somehow missing (in practice: never, once 99-vmic.conf is loaded).
-    fn ensure_vmic(&mut self) {
-        if self.nodes.values().any(|n| n.contains(NAME_VMIC)) {
+    fn ensure_virtual_sinks(&mut self) {
+        self.ensure_named_sink(NAME_VMIC);
+        self.ensure_named_sink(NAME_VMONITOR);
+    }
+
+    fn ensure_named_sink(&mut self, name: &str) {
+        if self.nodes.values().any(|n| n.contains(name)) {
             return;
         }
         if self.dry_run {
-            println!("[dry-run] vmic missing; would provision a Pulse null-sink fallback");
+            println!("[dry-run] {name} missing; would provision a Pulse null-sink fallback");
             return;
         }
-        let out = Command::new("pactl")
-            .args(["load-module", "module-null-sink", &format!("sink_name={}", NAME_VMIC)])
-            .output();
+        let out = Command::new("pactl").args(["load-module", "module-null-sink", &format!("sink_name={name}")]).output();
         match out {
-            Ok(o) => println!("Loaded vmic null-sink: {}", String::from_utf8_lossy(&o.stdout).trim()),
-            Err(e) => eprintln!("Failed to provision vmic fallback sink: {e}"),
+            Ok(o) => println!("Loaded {name} null-sink: {}", String::from_utf8_lossy(&o.stdout).trim()),
+            Err(e) => eprintln!("Failed to provision {name} fallback sink: {e}"),
         }
     }
 
@@ -563,8 +590,12 @@ impl Manager {
         }
     }
 
-    /// Anything on the micproc or the vmic nodes that isn't the routing
-    /// table above is stray, so links stay exact even when apps auto-connect.
+    /// Anything on the micproc or the vmic/vmonitor nodes that isn't the
+    /// routing table above is stray, so links stay exact even when apps
+    /// auto-connect. Each micproc output lane may ONLY reach its own node:
+    /// out_rnn_* -> vmic, out_fast_* -> vmonitor -- never crossed, and
+    /// never both (that would defeat the whole point of the split: the
+    /// self-monitor lane leaking into what apps capture, or vice versa).
     fn unroute_stray_mix_links(&mut self) {
         let stray: Vec<(RPort, RPort)> = {
             let mut out = Vec::new();
@@ -572,17 +603,20 @@ impl Manager {
                 let Some(src) = self.rport(out_id) else { continue };
                 let Some(dst) = self.rport(in_id) else { continue };
 
-                let micproc_out = src.device.contains(NAME_MICPROC) && src.name.starts_with("out_");
+                let micproc_out_rnn = src.device.contains(NAME_MICPROC) && src.name.starts_with("out_rnn_");
+                let micproc_out_fast = src.device.contains(NAME_MICPROC) && src.name.starts_with("out_fast_");
                 let to_vmic = dst.device.contains(NAME_VMIC) && dst.name.starts_with("playback_");
+                let to_vmonitor = dst.device.contains(NAME_VMONITOR) && dst.name.starts_with("playback_");
 
                 let mic_to_proc = src.device.contains(NAME_MIC)
                     && dst.device.contains(NAME_MICPROC)
                     && ((src.name == "capture_FL" && dst.name == "in_L")
                         || (src.name == "capture_FR" && dst.name == "in_R"));
                 let bad_micproc_in = dst.device.contains(NAME_MICPROC) && dst.name.starts_with("in_") && !mic_to_proc;
-                let bad_micproc_out = micproc_out && !to_vmic;
+                let bad_rnn_out = micproc_out_rnn && !to_vmic;
+                let bad_fast_out = micproc_out_fast && !to_vmonitor;
 
-                if bad_micproc_in || bad_micproc_out {
+                if bad_micproc_in || bad_rnn_out || bad_fast_out {
                     out.push((src, dst));
                 }
             }
@@ -617,7 +651,13 @@ impl Manager {
             }
         }
 
+        // "Anything connected" (lane 1): the synth feeds BOTH nodes, so it's
+        // audible in your own monitor (via vmonitor) as well as to whoever
+        // captures the mic (via vmic). PipeWire sums multiple sources
+        // landing on the same playback_FL/FR ports natively -- no mixing
+        // node needed on either side.
         let vmic_ins = self.resolved_ports(&VMIC_SINK_IN, PortKind::AudioIn);
+        let vmonitor_ins = self.resolved_ports(&VMONITOR_SINK_IN, PortKind::AudioIn);
         for port in self.resolved_ports(&SYNTH_ANY, PortKind::AudioOut) {
             let dest = match port.name.as_str() {
                 "left" | "output_FL" | "FL" => "playback_FL",
@@ -625,6 +665,9 @@ impl Manager {
                 _ => continue,
             };
             if let Some(sink) = vmic_ins.iter().find(|s| s.name == dest) {
+                self.connect(&port, sink);
+            }
+            if let Some(sink) = vmonitor_ins.iter().find(|s| s.name == dest) {
                 self.connect(&port, sink);
             }
         }
@@ -639,9 +682,10 @@ impl Manager {
                 let Some(src) = self.rport(out_id) else { continue };
                 let Some(dst) = self.rport(in_id) else { continue };
                 let from_synth = src.device.to_lowercase().contains(&NAME_SYNTH.to_lowercase());
-                let to_vmic_feed = dst.device.to_lowercase().contains(&NAME_VMIC.to_lowercase())
+                let to_feed = (dst.device.to_lowercase().contains(&NAME_VMIC.to_lowercase())
+                    || dst.device.to_lowercase().contains(&NAME_VMONITOR.to_lowercase()))
                     && dst.name.starts_with("playback_");
-                if from_synth && !to_vmic_feed {
+                if from_synth && !to_feed {
                     out.push((src, dst));
                 }
             }
