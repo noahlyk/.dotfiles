@@ -303,9 +303,9 @@ binds {
     Mod+Ctrl+Shift+WheelScrollDown { move-column-right; }
     Mod+Ctrl+Shift+WheelScrollUp   { move-column-left; }
 
-    Mod+1 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-1"; }
-    Mod+2 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon2-1"; }
-    Mod+3 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon3-1"; }
+    Mod+1 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-1 smart"; }
+    Mod+2 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon2-1 smart"; }
+    Mod+3 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon3-1 smart"; }
     Mod+4 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-2"; }
     Mod+5 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-3"; }
     Mod+6 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-4"; }
@@ -329,16 +329,16 @@ binds {
     Mod+Shift+9 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-7"; }
     Mod+Shift+0 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon3-2"; }
 
-    Mod+Ctrl+1 { focus-column 1; }
-    Mod+Ctrl+2 { focus-column 2; }
-    Mod+Ctrl+3 { focus-column 3; }
-    Mod+Ctrl+4 { focus-column 4; }
-    Mod+Ctrl+5 { focus-column 5; }
-    Mod+Ctrl+6 { focus-column 6; }
-    Mod+Ctrl+7 { focus-column 7; }
-    Mod+Ctrl+8 { focus-column 8; }
-    Mod+Ctrl+9 { focus-column 9; }
-    Mod+Ctrl+0 { focus-column 10; }
+    Mod+Ctrl+1 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 1"; }
+    Mod+Ctrl+2 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 2"; }
+    Mod+Ctrl+3 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 3"; }
+    Mod+Ctrl+4 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 4"; }
+    Mod+Ctrl+5 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 5"; }
+    Mod+Ctrl+6 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 6"; }
+    Mod+Ctrl+7 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 7"; }
+    Mod+Ctrl+8 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 8"; }
+    Mod+Ctrl+9 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 9"; }
+    Mod+Ctrl+0 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 10"; }
 
     Mod+Ctrl+Shift+1 { move-column-to-index 1; }
     Mod+Ctrl+Shift+2 { move-column-to-index 2; }

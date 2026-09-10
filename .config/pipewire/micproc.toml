@@ -76,8 +76,9 @@ ratio = 2.5
 knee-db = 10.0
 range-db = -16.0
 attack-ms = 3.0
-release-ms = 260.0
+release-ms = 150.0
 detector-ms = 10.0
+disable-output-good = true
 
 [[stages]]
 type = "compressor"
@@ -113,7 +114,7 @@ range-db = -20.0
 hysteresis-db = 8.0
 hold-ms = 350.0
 attack-ms = 4.0
-release-ms = 320.0
+release-ms = 150.0
 detector-ms = 10.0
 detector = "expander"
 
