@@ -3,12 +3,13 @@
 //! Ports: `in_L`/`in_R` (input, wired standard left->left / right->right
 //! from the physical mic) and TWO output lanes, forked from the same
 //! processed signal right at the end of the chain:
-//!   - `out_fast_L`/`out_fast_R` -- no RNNoise, the chain's normal sub-1ms
-//!     latency. Feeds `vmonitor` (self-monitoring only; wired to speakers/
-//!     headphones, never captured by other apps).
 //!   - `out_rnn_L`/`out_rnn_R` -- RNNoise spectral denoising applied
 //!     (`[rnnoise] enabled` in `micproc.toml`), a fixed ~10ms delay when
-//!     on. Feeds `vmic` (what other apps/listeners capture as the mic).
+//!     on. Feeds vmic lane 2 (what other apps/listeners capture as the
+//!     mic, via vmic's single output lane).
+//!   - `out_fast_L`/`out_fast_R` -- no RNNoise, the chain's normal sub-1ms
+//!     latency. Feeds vmic lane 3 (self-monitoring only; summed onto
+//!     speakers/headphones by pw-links, never captured by other apps).
 //!
 //! Stage 0 is STEREO→MONO, configured in `micproc.toml` as the first
 //! `[[stages]]` entry (`type = "stereo2mono"`): it owns the input fold
@@ -1030,14 +1031,14 @@ fn spawn_reloader(snapshot: Arc<ArcSwap<DspSnapshot>>, rate: u32, path: PathBuf)
 struct MicProc {
     in_l: Port<AudioIn>,
     in_r: Port<AudioIn>,
-    /// Fast lane -- no RNNoise, the chain's normal sub-1ms latency. Feeds
-    /// `vmonitor` (self-monitoring only; never captured by other apps).
-    out_fast_l: Port<AudioOut>,
-    out_fast_r: Port<AudioOut>,
     /// Quality lane -- RNNoise applied (~10ms fixed delay when enabled).
-    /// Feeds `vmic` (what other apps/listeners capture as the microphone).
+    /// Feeds vmic lane 2 (the mic-feed mix).
     out_rnn_l: Port<AudioOut>,
     out_rnn_r: Port<AudioOut>,
+    /// Fast lane -- no RNNoise, the chain's normal sub-1ms latency. Feeds
+    /// vmic lane 3 (self-monitoring only; never captured by other apps).
+    out_fast_l: Port<AudioOut>,
+    out_fast_r: Port<AudioOut>,
     dsp: MicDsp,
     snapshot: Arc<ArcSwap<DspSnapshot>>,
 }
@@ -1046,17 +1047,17 @@ impl MicProc {
     fn new(client: &Client, snapshot: Arc<ArcSwap<DspSnapshot>>) -> Result<Self, jack::Error> {
         let in_l = client.register_port("in_L", AudioIn::default())?;
         let in_r = client.register_port("in_R", AudioIn::default())?;
-        let out_fast_l = client.register_port("out_fast_L", AudioOut::default())?;
-        let out_fast_r = client.register_port("out_fast_R", AudioOut::default())?;
         let out_rnn_l = client.register_port("out_rnn_L", AudioOut::default())?;
         let out_rnn_r = client.register_port("out_rnn_R", AudioOut::default())?;
+        let out_fast_l = client.register_port("out_fast_L", AudioOut::default())?;
+        let out_fast_r = client.register_port("out_fast_R", AudioOut::default())?;
         let rate = client.sample_rate() as u32;
         RATE.store(rate, Ordering::Relaxed);
 
         let mut dsp = MicDsp::new();
         dsp.adopt(&snapshot.load());
 
-        Ok(MicProc { in_l, in_r, out_fast_l, out_fast_r, out_rnn_l, out_rnn_r, dsp, snapshot })
+        Ok(MicProc { in_l, in_r, out_rnn_l, out_rnn_r, out_fast_l, out_fast_r, dsp, snapshot })
     }
 }
 
