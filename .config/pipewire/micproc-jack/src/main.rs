@@ -1,15 +1,16 @@
 //! micproc-jack — the dedicated mic processor node.
 //!
 //! Ports: `in_L`/`in_R` (input, wired standard left->left / right->right
-//! from the physical mic) and TWO output lanes, forked from the same
-//! processed signal right at the end of the chain:
-//!   - `out_rnn_L`/`out_rnn_R` -- RNNoise spectral denoising applied
+//! from the physical mic) and TWO output lanes, each its own independent
+//! chain of stages from the same `preamp`-scaled input onward (a stage can
+//! opt out of one lane via `disable-output-fast`/`disable-output-good` in
+//! `micproc.toml`, default false = runs on both):
+//!   - `out_good_L`/`out_good_R` -- ALSO RNNoise spectral denoising applied
 //!     (`[rnnoise] enabled` in `micproc.toml`), a fixed ~10ms delay when
-//!     on. Feeds vmic lane 2 (what other apps/listeners capture as the
-//!     mic, via vmic's single output lane).
-//!   - `out_fast_L`/`out_fast_R` -- no RNNoise, the chain's normal sub-1ms
-//!     latency. Feeds vmic lane 3 (self-monitoring only; summed onto
-//!     speakers/headphones by pw-links, never captured by other apps).
+//!     on. Feeds vmic_good (what other apps/listeners capture as the mic).
+//!   - `out_fast_L`/`out_fast_R` -- no RNNoise, sub-1ms latency. Feeds
+//!     vmic_fast (self-monitoring only; summed onto speakers/headphones by
+//!     pw-links, never captured by other apps).
 //!
 //! Stage 0 is STEREO→MONO, configured in `micproc.toml` as the first
 //! `[[stages]]` entry (`type = "stereo2mono"`): it owns the input fold
@@ -72,7 +73,7 @@ struct MicProcConf {
     /// Remove a `[[stages]]` block to drop that stage; `enabled = false`
     /// bypasses it in place.
     stages: Vec<StageConf>,
-    /// RNNoise spectral denoiser, applied ONLY to the `out_rnn_*` output
+    /// RNNoise spectral denoiser, applied ONLY to the `out_good_*` output
     /// lane (see module doc) after the `stages` chain runs. The `out_fast_*`
     /// lane always skips it, staying at the chain's normal sub-1ms latency.
     #[serde(default)]
@@ -116,6 +117,15 @@ struct StageConf {
     /// names an earlier stage `type` to key on (`"expander"` keeps the
     /// compressor's makeup gain out of the key signal).
     detector: Option<String>,
+    /// Skip this stage on the out_fast_* lane only (default false = runs on
+    /// both lanes, same as today). The two lanes fork into fully
+    /// independent chains from the preamp onward, so a stage disabled on
+    /// one lane doesn't affect the other's sidechain/gate-detector state.
+    #[serde(default)]
+    disable_output_fast: bool,
+    /// Skip this stage on the out_good_* lane only (default false).
+    #[serde(default)]
+    disable_output_good: bool,
     /// `stereo2mono` fold mode: `"peak"` | `"average"` | `"left"` | `"right"`.
     mode: Option<String>,
     /// `eq` output trim.
@@ -647,6 +657,17 @@ enum Stage {
 }
 
 impl Stage {
+    /// Kind name for logging (e.g. the per-lane stage list announced on
+    /// reload) -- not used for any dispatch, `step`/`match` do that directly.
+    fn name(&self) -> &'static str {
+        match self {
+            Stage::Expander(_) => "expander",
+            Stage::Compressor(_) => "compressor",
+            Stage::Gate(_) => "gate",
+            Stage::Eq { .. } => "eq",
+        }
+    }
+
     /// `key` is the sidechain level detector input (only the gate uses it).
     #[inline]
     fn step(&mut self, x: f32, key_db: f32) -> f32 {
@@ -668,39 +689,61 @@ impl Stage {
 /// (small) `stages` Vec out of it, so none of the parsing / string matching
 /// / biquad trig / logging in `build_snapshot` ever runs on the audio
 /// thread, even at the moment `micproc.toml` is hot-reloaded.
-struct DspSnapshot {
-    version: u64,
-    preamp: f32,
-    stereo2mono: Stereo2Mono,
+/// A fully-built per-lane chain: independent stage state and gate-detector
+/// indexing, since a stage disabled on one lane (see `disable-output-fast`/
+/// `disable-output-good`) means the two lanes' stage LISTS -- and therefore
+/// their sidechain indices -- can genuinely differ, not just their signal.
+#[derive(Clone)]
+struct LaneChain {
     stages: Vec<Stage>,
     /// Detector stage index for gate sidechaining (index of the stage whose
     /// POST output the gate keys on). `None` = gate keys on its own input.
     gate_det_idx: Option<usize>,
-    gate_idx: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    Fast,
+    Good,
+}
+
+/// A fully-built chain, produced OFF the JACK realtime thread by
+/// `build_snapshot` (called from the background config reloader, and once
+/// at startup before the client is activated). Published to the RT thread
+/// via a lock-free `ArcSwap<DspSnapshot>`; `MicDsp::adopt` only clones the
+/// (small) `stages` Vecs out of it, so none of the parsing / string matching
+/// / biquad trig / logging in `build_snapshot` ever runs on the audio
+/// thread, even at the moment `micproc.toml` is hot-reloaded.
+struct DspSnapshot {
+    version: u64,
+    preamp: f32,
+    stereo2mono: Stereo2Mono,
+    fast: LaneChain,
+    good: LaneChain,
     rnnoise_enabled: bool,
 }
 
-/// Build a full DSP chain from config: parsing, string matching over stage
-/// types, biquad coefficient trig (`sin`/`cos`/`powf`), and the announce
-/// `eprintln!` all happen here. Called only off the realtime thread.
-fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
-    let preamp = 10f32.powf(conf.preamp_db / 20.0);
-    let mut stereo2mono = Stereo2Mono::default();
-
+/// Build ONE lane's stage list + resolved gate-detector index, skipping any
+/// stage whose `disable-output-fast`/`disable-output-good` flag excludes it
+/// from `lane`. `log` gates the "unknown stage type" diagnostic so it's only
+/// printed once across both lane builds, not duplicated.
+fn build_lane(stages_conf: &[StageConf], rate: u32, lane: Lane, log: bool) -> LaneChain {
     let mut stages: Vec<Stage> = Vec::new();
     let mut kinds: Vec<&str> = Vec::new();
     let mut gate_det: Vec<Option<String>> = Vec::new();
 
-    for sc in &conf.stages {
+    for sc in stages_conf {
         if sc.ty.as_str() == "stereo2mono" {
-            // Stage 0 — the stereo→mono boundary conversion. Not a
-            // per-sample stage: it's the input fold + output duplication
-            // applied at the frame edge (see the process handler).
-            stereo2mono.enabled = sc.enabled;
-            stereo2mono.fold = FoldMode::parse(sc.mode.as_deref());
-            continue;
+            continue; // handled separately, shared by both lanes
         }
         if !sc.enabled {
+            continue;
+        }
+        let skip = match lane {
+            Lane::Fast => sc.disable_output_fast,
+            Lane::Good => sc.disable_output_good,
+        };
+        if skip {
             continue;
         }
         let pushed = match sc.ty.as_str() {
@@ -765,7 +808,9 @@ fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
                 true
             }
             other => {
-                eprintln!("[micproc] unknown stage type in stages: {other:?}");
+                if log {
+                    eprintln!("[micproc] unknown stage type in stages: {other:?}");
+                }
                 false
             }
         };
@@ -776,24 +821,25 @@ fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
     }
 
     // Resolve the gate's sidechain detector: it must be a stage type that
-    // runs BEFORE the gate. Default "expander" keys on the (typically)
-    // pre-compressor stage, keeping compressor makeup gain out of the key.
-    let mut gate_idx = 0usize;
+    // runs BEFORE the gate, WITHIN THIS LANE's own (possibly-filtered)
+    // stage list. Default "expander" keys on the (typically) pre-compressor
+    // stage, keeping compressor makeup gain out of the key.
     let mut gate_det_idx = None;
     for (i, kind) in kinds.iter().enumerate() {
         if *kind != "gate" {
             continue;
         }
-        gate_idx = i;
         let det = gate_det[i].clone().unwrap_or_else(|| "expander".into());
         match det.as_str() {
             "input" => gate_det_idx = None,
             det => match kinds[..i].iter().rposition(|k| k == &det) {
                 Some(j) => gate_det_idx = Some(j),
                 None => {
-                    eprintln!(
-                        "[micproc] gate detector \"{det}\" not found before the gate; keying on gate input"
-                    );
+                    if log {
+                        eprintln!(
+                            "[micproc] gate detector \"{det}\" not found before the gate; keying on gate input"
+                        );
+                    }
                     gate_det_idx = None;
                 }
             },
@@ -801,29 +847,102 @@ fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
         break;
     }
 
-    eprintln!(
-        "[micproc] chain v{version} @ {rate} Hz: preamp {:.1} dB, stereo->mono {} ({stereo2mono:?}), stages {kinds:?}, gate detector {}, rnnoise {}",
-        conf.preamp_db,
-        if conf.stages.iter().any(|s| s.ty == "stereo2mono") { "configured" } else { "default" },
-        if gate_det_idx.is_some() { "pre-gate stage".to_string() } else { "gate input".to_string() },
-        if conf.rnnoise.enabled { "on (out_rnn_* lane, ~10ms)" } else { "off (out_rnn_* mirrors out_fast_*)" }
-    );
-
-    DspSnapshot { version, preamp, stereo2mono, stages, gate_det_idx, gate_idx, rnnoise_enabled: conf.rnnoise.enabled }
+    LaneChain { stages, gate_det_idx }
 }
 
-/// All per-block DSP state for the mono strip -- RT-thread-owned.
+/// Build a full DSP chain from config: parsing, string matching over stage
+/// types, biquad coefficient trig (`sin`/`cos`/`powf`), and the announce
+/// `eprintln!` all happen here. Called only off the realtime thread.
+fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
+    let preamp = 10f32.powf(conf.preamp_db / 20.0);
+    let mut stereo2mono = Stereo2Mono::default();
+    for sc in &conf.stages {
+        if sc.ty.as_str() == "stereo2mono" {
+            // Stage 0 — the stereo→mono boundary conversion. Not a
+            // per-sample stage: it's the input fold + output duplication
+            // applied at the frame edge (see the process handler). Shared by
+            // both lanes -- it runs before they fork.
+            stereo2mono.enabled = sc.enabled;
+            stereo2mono.fold = FoldMode::parse(sc.mode.as_deref());
+            break;
+        }
+    }
+
+    let fast = build_lane(&conf.stages, rate, Lane::Fast, true);
+    let good = build_lane(&conf.stages, rate, Lane::Good, false);
+
+    eprintln!(
+        "[micproc] chain v{version} @ {rate} Hz: preamp {:.1} dB, stereo->mono {} ({stereo2mono:?}), fast-stages {:?}, good-stages {:?}, rnnoise {}",
+        conf.preamp_db,
+        if conf.stages.iter().any(|s| s.ty == "stereo2mono") { "configured" } else { "default" },
+        fast.stages.iter().map(Stage::name).collect::<Vec<_>>(),
+        good.stages.iter().map(Stage::name).collect::<Vec<_>>(),
+        if conf.rnnoise.enabled { "on (out_good_* lane, ~10ms)" } else { "off (out_good_* mirrors out_fast_*)" }
+    );
+
+    DspSnapshot { version, preamp, stereo2mono, fast, good, rnnoise_enabled: conf.rnnoise.enabled }
+}
+
+/// RT-thread-owned per-lane state: the (cloned) stage list plus each
+/// stage's previous-cycle output (sidechain taps), mirroring `LaneChain`.
+struct LaneDsp {
+    stages: Vec<Stage>,
+    gate_det_idx: Option<usize>,
+    stage_out: Vec<f32>,
+}
+
+impl LaneDsp {
+    fn new() -> Self {
+        LaneDsp { stages: Vec::new(), gate_det_idx: None, stage_out: Vec::new() }
+    }
+
+    fn adopt(&mut self, chain: &LaneChain) {
+        self.stages = chain.stages.clone();
+        self.gate_det_idx = chain.gate_det_idx;
+        self.stage_out = vec![0.0; self.stages.len()];
+    }
+
+    /// Run one sample through this lane's own stage list. Only
+    /// Expander/Compressor (keyed on their own input) and Gate (keyed on a
+    /// sidechain tap) read `key`; Eq ignores it entirely, so skip the log2
+    /// call for that stage rather than throwing the result away.
+    #[inline]
+    fn run(&mut self, mut x: f32) -> f32 {
+        for (i, stage) in self.stages.iter_mut().enumerate() {
+            let key = match stage {
+                Stage::Gate(_) => {
+                    // Soft-gate sidechain: key on a stage BEFORE the
+                    // compressor (by default the expander's output), so
+                    // makeup gain can't lift residual noise back over the
+                    // threshold. Indexes into THIS lane's own stage_out --
+                    // the two lanes' stage lists (and therefore indices)
+                    // can differ when `disable-output-fast`/`-good` is used.
+                    match self.gate_det_idx {
+                        Some(d) => db(self.stage_out[d]),
+                        None => db(x),
+                    }
+                }
+                Stage::Eq { .. } => 0.0,
+                _ => db(x),
+            };
+            x = stage.step(x, key);
+            self.stage_out[i] = x;
+        }
+        x
+    }
+}
+
+/// All per-block DSP state for the mono strip -- RT-thread-owned. The two
+/// output lanes are fully independent chains from `preamp` onward (see
+/// `LaneDsp`), each built from `micproc.toml`'s SAME `[[stages]]` list, just
+/// with any stage marked `disable-output-fast`/`disable-output-good`
+/// dropped from that lane's own copy.
 struct MicDsp {
     version: u64,
     preamp: f32,
     stereo2mono: Stereo2Mono,
-    stages: Vec<Stage>,
-    /// Detector stage index for gate sidechaining (index of the stage whose
-    /// POST output the gate keys on). `None` = gate keys on its own input.
-    gate_det_idx: Option<usize>,
-    gate_idx: usize,
-    /// Each stage's output of the previous frame cycle (sidechain taps).
-    stage_out: Vec<f32>,
+    fast: LaneDsp,
+    good: LaneDsp,
     /// Persistent across reloads (its internal FIFO/model state must not
     /// reset just because `micproc.toml` was edited) -- only ever created
     /// once, in `new()`. `adopt()` toggles `rnnoise_enabled`, never touches
@@ -838,64 +957,39 @@ impl MicDsp {
             version: u64::MAX,
             preamp: 1.0,
             stereo2mono: Stereo2Mono::default(),
-            stages: Vec::new(),
-            gate_det_idx: None,
-            gate_idx: 0,
-            stage_out: Vec::new(),
+            fast: LaneDsp::new(),
+            good: LaneDsp::new(),
             denoiser: Denoiser::new(),
             rnnoise_enabled: false,
         }
     }
 
     /// Adopt a freshly-built snapshot into this RT-thread-owned state. Only
-    /// clones the small prebuilt `Vec<Stage>` and copies scalar fields --
+    /// clones the small prebuilt `Vec<Stage>`s and copies scalar fields --
     /// all the expensive work already happened in `build_snapshot`, off the
     /// realtime thread. Safe to call from `process()`.
     #[inline]
     fn adopt(&mut self, snap: &DspSnapshot) {
         self.preamp = snap.preamp;
         self.stereo2mono = snap.stereo2mono;
-        self.stages = snap.stages.clone();
-        self.gate_det_idx = snap.gate_det_idx;
-        self.gate_idx = snap.gate_idx;
-        self.stage_out = vec![0.0; self.stages.len()];
+        self.fast.adopt(&snap.fast);
+        self.good.adopt(&snap.good);
         self.rnnoise_enabled = snap.rnnoise_enabled;
         self.version = snap.version;
     }
 
-    /// Process one mono sample through the shared chain, then fork it into
-    /// the two output lanes: `.0` is the fast lane (no RNNoise, same
-    /// sub-1ms latency as before), `.1` is the quality lane (RNNoise
-    /// applied, ~10ms fixed delay). When RNNoise is disabled in config, the
-    /// quality lane just mirrors the fast lane (no delay either).
+    /// Process one mono sample through the preamp, then fork it into two
+    /// fully independent lane chains: `.0` is the fast lane (no RNNoise,
+    /// sub-1ms latency), `.1` is the quality/"good" lane (RNNoise applied,
+    /// ~10ms fixed delay). When RNNoise is disabled in config, the good
+    /// lane's chain output is used directly (no delay either).
     #[inline]
     fn process(&mut self, x: f32) -> (f32, f32) {
-        let mut x = x * self.preamp;
-        for (i, stage) in self.stages.iter_mut().enumerate() {
-            // Only Expander/Compressor (keyed on their own input) and Gate
-            // (keyed on a sidechain tap) read `key`; Eq ignores it entirely,
-            // so skip the log2 call for that stage rather than throwing the
-            // result away.
-            let key = match stage {
-                Stage::Gate(_) => {
-                    // Soft-gate sidechain: key on a stage BEFORE the
-                    // compressor (by default the expander's output), so
-                    // makeup gain can't lift residual noise back over the
-                    // threshold.
-                    match self.gate_det_idx {
-                        Some(d) => db(self.stage_out[d]),
-                        None => db(x),
-                    }
-                }
-                Stage::Eq { .. } => 0.0,
-                _ => db(x),
-            };
-            x = stage.step(x, key);
-            self.stage_out[i] = x;
-        }
-        let fast = x;
-        let rnn = if self.rnnoise_enabled { self.denoiser.push(x).unwrap_or(0.0) } else { x };
-        (fast, rnn)
+        let x = x * self.preamp;
+        let fast = self.fast.run(x);
+        let good_pre = self.good.run(x);
+        let good = if self.rnnoise_enabled { self.denoiser.push(good_pre).unwrap_or(0.0) } else { good_pre };
+        (fast, good)
     }
 }
 
@@ -1031,12 +1125,12 @@ fn spawn_reloader(snapshot: Arc<ArcSwap<DspSnapshot>>, rate: u32, path: PathBuf)
 struct MicProc {
     in_l: Port<AudioIn>,
     in_r: Port<AudioIn>,
-    /// Quality lane -- RNNoise applied (~10ms fixed delay when enabled).
-    /// Feeds vmic lane 2 (the mic-feed mix).
-    out_rnn_l: Port<AudioOut>,
-    out_rnn_r: Port<AudioOut>,
+    /// Quality/"good" lane -- RNNoise applied (~10ms fixed delay when
+    /// enabled). Feeds vmic_good (the mic-feed mix).
+    out_good_l: Port<AudioOut>,
+    out_good_r: Port<AudioOut>,
     /// Fast lane -- no RNNoise, the chain's normal sub-1ms latency. Feeds
-    /// vmic lane 3 (self-monitoring only; never captured by other apps).
+    /// vmic_fast (self-monitoring only; never captured by other apps).
     out_fast_l: Port<AudioOut>,
     out_fast_r: Port<AudioOut>,
     dsp: MicDsp,
@@ -1047,8 +1141,8 @@ impl MicProc {
     fn new(client: &Client, snapshot: Arc<ArcSwap<DspSnapshot>>) -> Result<Self, jack::Error> {
         let in_l = client.register_port("in_L", AudioIn::default())?;
         let in_r = client.register_port("in_R", AudioIn::default())?;
-        let out_rnn_l = client.register_port("out_rnn_L", AudioOut::default())?;
-        let out_rnn_r = client.register_port("out_rnn_R", AudioOut::default())?;
+        let out_good_l = client.register_port("out_good_L", AudioOut::default())?;
+        let out_good_r = client.register_port("out_good_R", AudioOut::default())?;
         let out_fast_l = client.register_port("out_fast_L", AudioOut::default())?;
         let out_fast_r = client.register_port("out_fast_R", AudioOut::default())?;
         let rate = client.sample_rate() as u32;
@@ -1057,7 +1151,7 @@ impl MicProc {
         let mut dsp = MicDsp::new();
         dsp.adopt(&snapshot.load());
 
-        Ok(MicProc { in_l, in_r, out_rnn_l, out_rnn_r, out_fast_l, out_fast_r, dsp, snapshot })
+        Ok(MicProc { in_l, in_r, out_good_l, out_good_r, out_fast_l, out_fast_r, dsp, snapshot })
     }
 }
 
@@ -1076,8 +1170,8 @@ impl ProcessHandler for MicProc {
         let in_r = self.in_r.as_slice(scope);
         let out_fast_l = self.out_fast_l.as_mut_slice(scope);
         let out_fast_r = self.out_fast_r.as_mut_slice(scope);
-        let out_rnn_l = self.out_rnn_l.as_mut_slice(scope);
-        let out_rnn_r = self.out_rnn_r.as_mut_slice(scope);
+        let out_good_l = self.out_good_l.as_mut_slice(scope);
+        let out_good_r = self.out_good_r.as_mut_slice(scope);
 
         if self.dsp.stereo2mono.enabled {
             // Standard stereo → mono. Fold the two inputs to one mono lane
@@ -1092,11 +1186,11 @@ impl ProcessHandler for MicProc {
                     FoldMode::Left => l,
                     FoldMode::Right => r,
                 };
-                let (fast, rnn) = self.dsp.process(mono);
+                let (fast, good) = self.dsp.process(mono);
                 out_fast_l[f] = fast;
                 out_fast_r[f] = fast;
-                out_rnn_l[f] = rnn;
-                out_rnn_r[f] = rnn;
+                out_good_l[f] = good;
+                out_good_r[f] = good;
             }
         } else {
             // Fold disabled: plain stereo passthrough — each channel runs
@@ -1105,12 +1199,12 @@ impl ProcessHandler for MicProc {
             // continuous-stream state, same pre-existing quirk as the
             // dynamics state below), no folding, no duplication.
             for f in 0..n {
-                let (fast_l, rnn_l) = self.dsp.process(in_l[f]);
-                let (fast_r, rnn_r) = self.dsp.process(in_r[f]);
+                let (fast_l, good_l) = self.dsp.process(in_l[f]);
+                let (fast_r, good_r) = self.dsp.process(in_r[f]);
                 out_fast_l[f] = fast_l;
                 out_fast_r[f] = fast_r;
-                out_rnn_l[f] = rnn_l;
-                out_rnn_r[f] = rnn_r;
+                out_good_l[f] = good_l;
+                out_good_r[f] = good_r;
             }
         }
 
@@ -1304,16 +1398,19 @@ mod tests {
         dsp.adopt(&snap);
 
         // stereo2mono is the boundary conversion, not a per-sample stage;
-        // every OTHER present-and-enabled stage produces one Stage entry.
+        // every OTHER present-and-enabled stage produces one Stage entry on
+        // each lane that doesn't specifically disable it (the live config
+        // has no per-lane disables, so fast/good should match exactly).
         let enabled_non_stereo = conf
             .stages
             .iter()
             .filter(|s| s.enabled && s.ty != "stereo2mono")
             .count();
-        assert_eq!(dsp.stages.len(), enabled_non_stereo);
+        assert_eq!(dsp.fast.stages.len(), enabled_non_stereo);
+        assert_eq!(dsp.good.stages.len(), enabled_non_stereo);
         assert!(dsp.stereo2mono.enabled);
         assert_eq!(dsp.stereo2mono.fold, FoldMode::Peak);
-        assert!(matches!(dsp.stages.last(), Some(Stage::Eq { .. })), "chain should still end in Eq");
+        assert!(matches!(dsp.fast.stages.last(), Some(Stage::Eq { .. })), "chain should still end in Eq");
 
         // Whatever RNNoise setting is live, it must parse into the snapshot
         // without panicking (the actual on/off behavior is covered by the
@@ -1321,10 +1418,57 @@ mod tests {
         let _ = snap.rnnoise_enabled;
 
         // EQ holds the five ported bands.
-        match dsp.stages.last() {
+        match dsp.fast.stages.last() {
             Some(Stage::Eq { bqs, .. }) => assert_eq!(bqs.len(), 5),
             _ => unreachable!(),
         }
+    }
+
+    /// `disable-output-fast`/`disable-output-good` must (a) drop the stage
+    /// from ONLY that lane's own stage list, leaving the other lane's list
+    /// (and its gate-detector indexing) untouched, and (b) actually produce
+    /// different audio on the two lanes at runtime -- not just parse.
+    #[test]
+    fn per_lane_stage_disable_only_affects_its_own_lane() {
+        let toml = r#"
+            preamp-db = 0.0
+            [[stages]]
+            type = "stereo2mono"
+            enabled = true
+            mode = "peak"
+            [[stages]]
+            type = "gate"
+            # Hard mute below threshold (ratio huge, floor silence) so the
+            # two lanes' outputs are trivially distinguishable at runtime.
+            threshold-db = -10.0
+            ratio = 1000.0
+            range-db = -120.0
+            hysteresis-db = 0.0
+            hold-ms = 0.0
+            attack-ms = 0.001
+            release-ms = 0.001
+            detector-ms = 0.001
+            disable-output-fast = true
+        "#;
+        let conf: MicProcConf = toml::from_str(toml).expect("valid config");
+        assert!(conf.stages[1].disable_output_fast);
+        assert!(!conf.stages[1].disable_output_good);
+
+        let snap = build_snapshot(&conf, 48000, 1);
+        // Dropped entirely from fast's own list, present on good's.
+        assert_eq!(snap.fast.stages.len(), 0, "gate should be absent from the fast lane's stage list");
+        assert_eq!(snap.good.stages.len(), 1, "gate should still be present on the good lane's stage list");
+        assert!(matches!(snap.good.stages[0], Stage::Gate(_)));
+
+        let mut dsp = MicDsp::new();
+        dsp.adopt(&snap);
+        // A quiet input (well below the gate's -10dB threshold): the fast
+        // lane (no gate) passes it through unattenuated; the good lane (gate
+        // active, huge ratio, deep floor) crushes it toward silence.
+        let quiet = from_db(-40.0);
+        let (fast, good) = dsp.process(quiet);
+        assert!((fast - quiet).abs() < 1e-6, "fast lane should be an unmodified passthrough, got {fast}");
+        assert!(good.abs() < quiet.abs() * 0.1, "good lane's gate should have crushed a -40dB input, got {good}");
     }
 
     /// The fast log2/exp2 approximations stand in for libm log10()/powf() on

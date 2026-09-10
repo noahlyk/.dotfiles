@@ -24,20 +24,26 @@
 #   - The gate's `detector` picks which EARLIER stage's level opens it —
 #     keep "expander" so the compressor's makeup gain can't re-open it.
 #
-# All of the above (preamp + [[stages]]) runs ONCE, then the result forks
-# into TWO output lanes (see micproc-jack's module doc for the port list):
-#   - out_fast_* -- always exactly this chain's output, no further delay.
-#     Feeds `vmonitor` (your own headphones only).
-#   - out_rnn_*  -- ALSO passed through RNNoise (below) when enabled. Feeds
-#     `vmic` (what other apps / listeners capture as the microphone).
-# So tuning the stages above shapes BOTH lanes; [rnnoise] only affects the
-# quality/broadcast lane.
+# The preamp runs once, then EACH [[stages]] entry runs as TWO INDEPENDENT
+# chains, one per output lane (see micproc-jack's module doc for the port
+# list) -- a stage affects BOTH lanes by default:
+#   - out_fast_* -- this lane's chain output, no further delay. Feeds
+#     `vmic_fast` (your own headphones only).
+#   - out_good_* -- this lane's chain output, ALSO passed through RNNoise
+#     (below) when enabled. Feeds `vmic_good` (what other apps/listeners
+#     capture as the microphone).
+# Add `disable-output-fast = true` or `disable-output-good = true` to any
+# [[stages]] block to skip JUST that stage on JUST that lane (default false
+# = runs on both, same as leaving it out). Since the two lanes are fully
+# independent chains, a stage disabled on one doesn't touch the other's
+# sidechain/gate-detector state either. [rnnoise] itself only ever applies
+# to out_good_*, regardless of any per-stage disables above.
 
 preamp-db = 3.0
 
 [rnnoise]
 # Spectral/ML noise separation (nnnoiseless, a Rust RNNoise port) on the
-# out_rnn_* lane only -- unlike the expander/gate above, it can tell voice
+# out_good_* lane only -- unlike the expander/gate above, it can tell voice
 # and background noise apart even while BOTH are present at once, so it
 # doesn't have the "noise rides in behind your voice" problem a level-based
 # stage can't avoid. Costs a fixed ~10ms of latency on that lane (480-sample
@@ -52,23 +58,31 @@ mode = "peak"
 [[stages]]
 type = "expander"
 # Folds everything below `threshold-db` down by `ratio`, floored at `range-db`
-# (a gentle noise reducer, not a mute hole). Now that RNNoise (above) does
-# the real noise-vs-voice separation on the broadcast lane, this can stay
-# gentle -- it mainly matters for out_fast_* (your own monitor), which
-# never gets RNNoise.
+# (a gentle noise reducer, not a mute hole). Stays ENABLED on both lanes
+# even with RNNoise on -- RNNoise only reaches out_good_*, so out_fast_*
+# (your own monitor) still needs this for noise reduction; keeping it on
+# out_good_* too is cheap and doesn't fight RNNoise (different mechanism:
+# level-based vs. spectral), so there's no reason to disable-output-good it.
+# threshold lowered (-48 -> -52) and release lengthened (150 -> 260ms):
+# trailing consonants (s/t/k/f) at the end of a word are quiet enough to
+# dip below -48dB on their own, so the expander was engaging on natural
+# word-tail decay, not just real silence, reading as "the end of the word
+# got cut off". Floor raised (-22 -> -16) so even fully engaged the cut is
+# milder.
 enabled = true
-threshold-db = -48.0
+threshold-db = -52.0
 ratio = 2.5
 knee-db = 10.0
-range-db = -22.0
+range-db = -16.0
 attack-ms = 3.0
-release-ms = 150.0
+release-ms = 260.0
 detector-ms = 10.0
 
 [[stages]]
 type = "compressor"
 # Brings the voice up to the right area; `makeup-db` is the constant gain
-# applied after reduction. Off for now (independent of the RNNoise work).
+# applied after reduction. Off for now -- say the word if you want it on
+# (and/or only on one lane via disable-output-fast/-good).
 enabled = false
 threshold-db = -18.0
 ratio = 3.5
@@ -83,15 +97,22 @@ type = "gate"
 # `hysteresis-db` lower), a hold window (no syllable chopping), floored steep
 # expansion down to `range-db` (soft fade, never a hard mute). Real silence
 # should still be fully muted regardless of how gentle RNNoise/expander are.
+# hold lengthened (220 -> 350ms) and release lengthened (200 -> 320ms), floor
+# raised (-30 -> -20): the expander above was the main source of clipped
+# word-tails, but the gate was compounding it -- a decaying tail could drop
+# past close_db (threshold - hysteresis) before the word was really over,
+# and once "held" out, it started fading toward a deep -30dB floor. Longer
+# hold/release + a gentler floor gives trailing syllables more room without
+# giving up on muting real silence (still closes eventually, just softer).
 enabled = true
 threshold-db = -55.0
 ratio = 6.0
 knee-db = 8.0
-range-db = -30.0
+range-db = -20.0
 hysteresis-db = 8.0
-hold-ms = 220.0
+hold-ms = 350.0
 attack-ms = 4.0
-release-ms = 200.0
+release-ms = 320.0
 detector-ms = 10.0
 detector = "expander"
 

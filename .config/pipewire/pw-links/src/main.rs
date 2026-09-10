@@ -9,9 +9,9 @@
 //!   vinput    -- "anything connected" (e.g. the synth) lands here. Its
 //!                automatic monitor_FL/FR (every Sink gets this for free,
 //!                mirroring whatever was fed in) is fanned out by this
-//!                file into BOTH vmic_rnn's and vmic_fast's inputs.
-//!   vmic_rnn  -- vinput's monitor + micproc.out_rnn_* (quality/RNNoise
-//!                voice), summed at vmic_rnn's own input. The
+//!                file into BOTH vmic_good's and vmic_fast's inputs.
+//!   vmic_good -- vinput's monitor + micproc.out_good_* (quality/RNNoise
+//!                voice), summed at vmic_good's own input. The
 //!                broadcast-quality mic -- what apps (Discord/OBS/...)
 //!                select.
 //!   vmic_fast -- vinput's monitor + micproc.out_fast_* (fast/no-RNNoise
@@ -26,7 +26,7 @@
 //!   apps -> the default speaker device (WirePlumber's normal routing; the
 //!     mic arrives there through vmic_fast's self-monitor tap, above)
 //!   Oxygen 49 MIDI -> fluidsynth (on-demand) -> vinput (audible to you via
-//!     vmic_fast's self-monitor tap AND to listeners via vmic_rnn)
+//!     vmic_fast's self-monitor tap AND to listeners via vmic_good)
 //!   ~/Soundboard/play.sh -> the default speaker device
 //!
 //! The routing is described by the `routes()` table, the self-monitor
@@ -85,10 +85,10 @@ const PENDING_LINK_TTL: Duration = Duration::from_secs(2);
 
 const NAME_MIC: &str = "Komplete";
 const NAME_MICPROC: &str = "micproc";
-/// "Anything connected" lands here, fanned out to both vmic_rnn/vmic_fast.
+/// "Anything connected" lands here, fanned out to both vmic_good/vmic_fast.
 const NAME_VINPUT: &str = "vinput";
 /// Broadcast-quality mic (vinput + RNNoise voice) -- what apps select.
-const NAME_VMIC_RNN: &str = "vmic_rnn";
+const NAME_VMIC_GOOD: &str = "vmic_good";
 /// Fast/self-monitor mic (vinput + no-RNNoise voice).
 const NAME_VMIC_FAST: &str = "vmic_fast";
 // Matches the synth's single JACK node ("fluidsynth-midi": MIDI-in port +
@@ -116,14 +116,14 @@ const fn dev(node: &'static str, port: &'static str) -> Device {
 
 const MIC_INPUT: Device = dev(NAME_MIC, "capture_");
 const MICPROC_INPUT: Device = dev(NAME_MICPROC, "in_");
-/// Quality/broadcast voice output -- feeds vmic_rnn's input.
-const MICPROC_OUT_RNN: Device = dev(NAME_MICPROC, "out_rnn_");
+/// Quality/broadcast voice output -- feeds vmic_good's input.
+const MICPROC_OUT_GOOD: Device = dev(NAME_MICPROC, "out_good_");
 /// Fast/self-monitor voice output -- feeds vmic_fast's input.
 const MICPROC_OUT_FAST: Device = dev(NAME_MICPROC, "out_fast_");
 const VINPUT_SINK_IN: Device = dev(NAME_VINPUT, "playback_");
 /// vinput's automatic raw monitor mirror -- fanned out to both vmics.
 const VINPUT_MONITOR: Device = dev(NAME_VINPUT, "monitor_");
-const VMIC_RNN_SINK_IN: Device = dev(NAME_VMIC_RNN, "playback_");
+const VMIC_GOOD_SINK_IN: Device = dev(NAME_VMIC_GOOD, "playback_");
 const VMIC_FAST_SINK_IN: Device = dev(NAME_VMIC_FAST, "playback_");
 /// vmic_fast's own mixed output -- routed to the real speaker device.
 const VMIC_FAST_MONITOR: Device = dev(NAME_VMIC_FAST, "monitor_");
@@ -154,12 +154,12 @@ fn pairs_exclusive(src: Device, dst: Device, map: &'static [(&'static str, &'sta
 fn routes() -> Vec<Route> {
     vec![
         pairs_exclusive(MIC_INPUT, MICPROC_INPUT, &[("FL", "in_L"), ("FR", "in_R")]),
-        // Quality/broadcast voice -> vmic_rnn's input.
-        pairs(MICPROC_OUT_RNN, VMIC_RNN_SINK_IN, &[("L", "playback_FL"), ("R", "playback_FR")]),
+        // Quality/broadcast voice -> vmic_good's input.
+        pairs(MICPROC_OUT_GOOD, VMIC_GOOD_SINK_IN, &[("L", "playback_FL"), ("R", "playback_FR")]),
         // Fast/self-monitor voice -> vmic_fast's input.
         pairs(MICPROC_OUT_FAST, VMIC_FAST_SINK_IN, &[("L", "playback_FL"), ("R", "playback_FR")]),
         // "Anything connected" (vinput's raw monitor) fanned into both.
-        pairs(VINPUT_MONITOR, VMIC_RNN_SINK_IN, &[("FL", "playback_FL"), ("FR", "playback_FR")]),
+        pairs(VINPUT_MONITOR, VMIC_GOOD_SINK_IN, &[("FL", "playback_FL"), ("FR", "playback_FR")]),
         pairs(VINPUT_MONITOR, VMIC_FAST_SINK_IN, &[("FL", "playback_FL"), ("FR", "playback_FR")]),
     ]
 }
@@ -500,13 +500,13 @@ impl Manager {
     }
 
     /// vmic_fast's own (mixed: vinput + fast voice) output -> the default
-    /// speaker device. This is the ONLY self-listen path: vmic_rnn (what
+    /// speaker device. This is the ONLY self-listen path: vmic_good (what
     /// apps capture) is never touched here -- it must never also reach
     /// your own speakers, or you'd hear your own voice twice at two
     /// different delays (RNNoise's ~10ms vs. the fast lane's).
     fn apply_self_monitor_route(&mut self) {
         let Some(default) = self.default_sink.clone() else { return };
-        if default.contains(NAME_VMIC_FAST) || default.contains(NAME_VMIC_RNN) || default.contains(NAME_VINPUT) {
+        if default.contains(NAME_VMIC_FAST) || default.contains(NAME_VMIC_GOOD) || default.contains(NAME_VINPUT) {
             return;
         }
 
@@ -548,7 +548,7 @@ impl Manager {
         Some(RPort { id, node_id: info.node_id, device: device.clone(), name: info.name.clone() })
     }
 
-    /// Make sure all three virtual nodes (`vinput`, `vmic_rnn`,
+    /// Make sure all three virtual nodes (`vinput`, `vmic_good`,
     /// `vmic_fast`) exist. The filter-chain (pipewire.conf.d/99-vmic.conf)
     /// provides them at PipeWire startup; as a fallback we can provision a
     /// Pulse null-sink each so there's always something to route to/pick.
@@ -557,7 +557,7 @@ impl Manager {
     /// once 99-vmic.conf is loaded).
     fn ensure_virtual_sinks(&mut self) {
         self.ensure_named_sink(NAME_VINPUT);
-        self.ensure_named_sink(NAME_VMIC_RNN);
+        self.ensure_named_sink(NAME_VMIC_GOOD);
         self.ensure_named_sink(NAME_VMIC_FAST);
     }
 
@@ -610,8 +610,8 @@ impl Manager {
     /// Anything on the micproc/vinput/vmic_* nodes that isn't the routing
     /// table above is stray, so links stay exact even when apps
     /// auto-connect. Each micproc output may ONLY reach its own vmic's
-    /// input (out_rnn_* -> vmic_rnn, out_fast_* -> vmic_fast -- never
-    /// crossed), and vinput's monitor may ONLY reach vmic_rnn/vmic_fast's
+    /// input (out_good_* -> vmic_good, out_fast_* -> vmic_fast -- never
+    /// crossed), and vinput's monitor may ONLY reach vmic_good/vmic_fast's
     /// inputs.
     fn unroute_stray_mix_links(&mut self) {
         let stray: Vec<(RPort, RPort)> = {
@@ -620,9 +620,9 @@ impl Manager {
                 let Some(src) = self.rport(out_id) else { continue };
                 let Some(dst) = self.rport(in_id) else { continue };
 
-                let micproc_out_rnn = src.device.contains(NAME_MICPROC) && src.name.starts_with("out_rnn_");
+                let micproc_out_good = src.device.contains(NAME_MICPROC) && src.name.starts_with("out_good_");
                 let micproc_out_fast = src.device.contains(NAME_MICPROC) && src.name.starts_with("out_fast_");
-                let to_vmic_rnn = dst.device.contains(NAME_VMIC_RNN) && dst.name.starts_with("playback_");
+                let to_vmic_good = dst.device.contains(NAME_VMIC_GOOD) && dst.name.starts_with("playback_");
                 let to_vmic_fast = dst.device.contains(NAME_VMIC_FAST) && dst.name.starts_with("playback_");
 
                 let mic_to_proc = src.device.contains(NAME_MIC)
@@ -630,13 +630,13 @@ impl Manager {
                     && ((src.name == "capture_FL" && dst.name == "in_L")
                         || (src.name == "capture_FR" && dst.name == "in_R"));
                 let bad_micproc_in = dst.device.contains(NAME_MICPROC) && dst.name.starts_with("in_") && !mic_to_proc;
-                let bad_rnn_out = micproc_out_rnn && !to_vmic_rnn;
+                let bad_good_out = micproc_out_good && !to_vmic_good;
                 let bad_fast_out = micproc_out_fast && !to_vmic_fast;
 
                 let from_vinput_monitor = src.device.contains(NAME_VINPUT) && src.name.starts_with("monitor_");
-                let bad_vinput_out = from_vinput_monitor && !(to_vmic_rnn || to_vmic_fast);
+                let bad_vinput_out = from_vinput_monitor && !(to_vmic_good || to_vmic_fast);
 
-                if bad_micproc_in || bad_rnn_out || bad_fast_out || bad_vinput_out {
+                if bad_micproc_in || bad_good_out || bad_fast_out || bad_vinput_out {
                     out.push((src, dst));
                 }
             }
@@ -671,7 +671,7 @@ impl Manager {
             }
         }
 
-        // Feed vinput once; its monitor is fanned into both vmic_rnn and
+        // Feed vinput once; its monitor is fanned into both vmic_good and
         // vmic_fast by `routes()`, so the synth ends up audible in your
         // own monitor as well as to whoever captures the mic.
         let vinput_ins = self.resolved_ports(&VINPUT_SINK_IN, PortKind::AudioIn);
