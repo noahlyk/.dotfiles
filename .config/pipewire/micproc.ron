@@ -1,0 +1,70 @@
+(
+    preamp_db: 16.0,
+    active_mode: "vocals",
+
+    linking: (
+        enabled: true,
+        only_edit_links_on_node_init: true,
+    ),
+    modes: {
+        "vocals": (
+            stages: [
+                (type: "stereo2mono", enabled: true, mode: "peak"),
+                (
+                    type: "expander",
+                    enabled: true,
+                    threshold_db: -52.0,
+                    ratio: 2.5,
+                    knee_db: 10.0,
+                    range_db: -16.0,
+                    attack_ms: 3.0,
+                    release_ms: 150.0,
+                    detector_ms: 10.0,
+                    disable_output_good: true,
+                ),
+                (
+                    type: "compressor",
+                    enabled: false,
+                    threshold_db: -18.0,
+                    ratio: 3.5,
+                    makeup_db: 0.0,
+                    knee_db: 4.0,
+                    attack_ms: 4.0,
+                    release_ms: 30.0,
+                ),
+                (
+                    type: "gate",
+                    enabled: true,
+                    threshold_db: -55.0,
+                    ratio: 6.0,
+                    knee_db: 8.0,
+                    range_db: -20.0,
+                    hysteresis_db: 8.0,
+                    hold_ms: 350.0,
+                    attack_ms: 4.0,
+                    release_ms: 150.0,
+                    detector_ms: 10.0,
+                    detector: "expander",
+                ),
+                (
+                    type: "eq",
+                    enabled: true,
+                    preamp_db: 0.0,
+                    band: [
+                        (type: "LS", freq: 60,   gain_db: -2.9, q: 0.71),
+                        (type: "PK", freq: 130,  gain_db: 1.7,  q: 2.4),
+                        (type: "PK", freq: 245,  gain_db: 3.1,  q: 1.1),
+                        (type: "PK", freq: 1650, gain_db: -9.4, q: 4.4),
+                        (type: "HS", freq: 8300, gain_db: 2.2,  q: 1.3),
+                    ],
+                ),
+                (type: "rnnoise", enabled: true, disable_output_fast: true),
+            ],
+        ),
+        "raw": (
+            stages: [
+                (type: "stereo2mono", enabled: true, mode: "peak"),
+            ],
+        ),
+    },
+)

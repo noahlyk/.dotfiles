@@ -52,12 +52,86 @@ use pw::properties::properties;
 use pw::registry::GlobalObject;
 use pw::spa::utils::dict::DictRef;
 use pw::types::ObjectType;
+use serde::Deserialize;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::env;
+use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+
+// ────────────────────────────────────────────────────────────────────
+// CONFIG — `linking` table in `micproc.ron` (shared with micproc-jack, RON
+// not TOML; this crate only ever reads that one field out of it). Field
+// names are used as-is (snake_case), matching the structs below.
+// ────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+struct RootConf {
+    #[serde(default)]
+    linking: LinkingConf,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LinkingConf {
+    /// Master switch: false disables all linking activity (no connects, no
+    /// disconnects, no virtual-sink provisioning, no synth lifecycle).
+    #[serde(default = "default_true")]
+    enabled: bool,
+    /// true (default): wire each node up once, right as it (and its route
+    /// peers) first appear, then leave its links alone -- manual relinking
+    /// (pw-link/qpwgraph) afterward is never fought. false: keep enforcing
+    /// the routing table on every registry event, forever (old behavior).
+    #[serde(default = "default_true")]
+    only_edit_links_on_node_init: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for LinkingConf {
+    fn default() -> Self {
+        LinkingConf { enabled: true, only_edit_links_on_node_init: true }
+    }
+}
+
+/// Same resolution order as micproc-jack's `config_path()`, so both daemons
+/// agree on the one `micproc.ron` without either hardcoding the other's
+/// path: `$MICPROC_CONF`, else `$XDG_CONFIG_HOME/pipewire/micproc.ron`,
+/// else `~/.config/pipewire/micproc.ron`.
+fn config_path() -> PathBuf {
+    let dir = env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env::var("HOME").expect("HOME unset")).join(".config"))
+        .join("pipewire");
+    env::var("MICPROC_CONF").map(PathBuf::from).unwrap_or_else(|_| dir.join("micproc.ron"))
+}
+
+/// Loaded once at startup (unlike micproc-jack, this crate has no hot
+/// reload) -- missing file or bad `linking` table falls back to defaults
+/// rather than refusing to start, since the rest of `micproc.ron` (modes,
+/// stages, rnnoise) isn't this crate's business.
+fn load_linking_conf() -> LinkingConf {
+    let path = config_path();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("[pw-links] cannot read {}: {e}; using default linking settings", path.display());
+            return LinkingConf::default();
+        }
+    };
+    let opts = ron::Options::default().with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME);
+    match opts.from_str::<RootConf>(&text) {
+        Ok(c) => c.linking,
+        Err(e) => {
+            eprintln!("[pw-links] bad config {}: {e}; using default linking settings", path.display());
+            LinkingConf::default()
+        }
+    }
+}
 
 // ────────────────────────────────────────────────────────────────────
 // TIMING
@@ -236,6 +310,7 @@ struct Manager {
     /// used to validate this against a real running system before it's ever
     /// allowed to mutate anything.
     dry_run: bool,
+    linking: LinkingConf,
 
     nodes: HashMap<u32, String>,
     ports: HashMap<u32, PortInfo>,
@@ -244,6 +319,28 @@ struct Manager {
     /// A link create we just issued, not yet confirmed via a registry Link
     /// event -- see `PENDING_LINK_TTL`.
     pending_links: HashMap<(u32, u32), Instant>,
+    /// Node ids that have already been an endpoint of an actual `connect`/
+    /// `disconnect` decision (i.e. both sides had real, resolved ports and a
+    /// routing call was genuinely made) -- only populated/consulted when
+    /// `linking.only_edit_links_on_node_init` is true. Once a node id is
+    /// here, its links are never touched again (neither created nor torn
+    /// down as "stray") until it disappears and a genuinely new node id
+    /// takes its place; see `connect`/`disconnect`/`on_global_remove`.
+    ///
+    /// Deliberately NOT "every node id known by the end of a pass": a Node
+    /// global can (and on a full PipeWire restart, routinely does) appear a
+    /// debounce tick or more before that node's own ports register -- e.g.
+    /// an ALSA hardware node enumerating before micproc-jack's JACK ports
+    /// come up. Freezing on node-existence alone froze nodes with zero
+    /// resolved ports, permanently skipping their real link once the ports
+    /// finally showed up. Freezing only on real connect/disconnect calls
+    /// means a node with no ports yet simply never gets touched, and stays
+    /// eligible for its real first pass once they exist.
+    settled_nodes: HashSet<u32>,
+    /// Node ids touched (as either endpoint of a `connect`/`disconnect`
+    /// call) during the apply_routes pass currently in progress. Drained
+    /// into `settled_nodes` at the end of the pass.
+    pass_touched_nodes: HashSet<u32>,
 
     default_sink: Option<String>,
     link_factory: Option<String>,
@@ -258,15 +355,18 @@ struct Manager {
 }
 
 impl Manager {
-    fn new(core: pw::core::CoreRc, registry: pw::registry::RegistryRc, dry_run: bool) -> Self {
+    fn new(core: pw::core::CoreRc, registry: pw::registry::RegistryRc, dry_run: bool, linking: LinkingConf) -> Self {
         Manager {
             core,
             registry,
             dry_run,
+            linking,
             nodes: HashMap::new(),
             ports: HashMap::new(),
             links: HashMap::new(),
             pending_links: HashMap::new(),
+            settled_nodes: HashSet::new(),
+            pass_touched_nodes: HashSet::new(),
             default_sink: None,
             link_factory: None,
             _default_metadata: None,
@@ -327,6 +427,9 @@ impl Manager {
         self.nodes.remove(&id);
         self.ports.remove(&id);
         self.links.remove(&id);
+        // If a node dies, a later reappearance gets a fresh global id and so
+        // is treated as genuinely new -- forget it was ever settled.
+        self.settled_nodes.remove(&id);
     }
 
     // ── port queries ───────────────────────────────────────────────
@@ -383,7 +486,21 @@ impl Manager {
         }
     }
 
+    /// Both endpoints' nodes are frozen (`only_edit_links_on_node_init` and
+    /// neither is newly-appeared) -- this pair is not this daemon's business
+    /// anymore, however the user has since rewired it by hand.
+    fn pair_settled(&self, a_node: u32, b_node: u32) -> bool {
+        self.linking.only_edit_links_on_node_init
+            && self.settled_nodes.contains(&a_node)
+            && self.settled_nodes.contains(&b_node)
+    }
+
     fn connect(&mut self, source: &RPort, sink: &RPort) {
+        if self.pair_settled(source.node_id, sink.node_id) {
+            return;
+        }
+        self.pass_touched_nodes.insert(source.node_id);
+        self.pass_touched_nodes.insert(sink.node_id);
         if self.link_exists(source.id, sink.id) {
             return;
         }
@@ -417,6 +534,11 @@ impl Manager {
     }
 
     fn disconnect(&mut self, source: &RPort, sink: &RPort) {
+        if self.pair_settled(source.node_id, sink.node_id) {
+            return;
+        }
+        self.pass_touched_nodes.insert(source.node_id);
+        self.pass_touched_nodes.insert(sink.node_id);
         let id = self.links.iter().find(|(_, &(o, i))| o == source.id && i == sink.id).map(|(&id, _)| id);
         if let Some(id) = id {
             if self.dry_run {
@@ -490,6 +612,9 @@ impl Manager {
     // ── route engine ───────────────────────────────────────────────
 
     fn apply_routes(&mut self) {
+        if !self.linking.enabled {
+            return;
+        }
         self.ensure_virtual_sinks();
         for route in routes() {
             self.apply_route(route);
@@ -497,6 +622,17 @@ impl Manager {
         self.apply_self_monitor_route();
         self.apply_synth_route();
         self.unroute_stray_mix_links();
+
+        // Only nodes that were an endpoint of a real connect/disconnect
+        // decision this pass (i.e. had actual resolved ports on both sides)
+        // get frozen -- see the doc comment on `settled_nodes` for why NOT
+        // "every node known by now". A node with no ports yet is simply left
+        // alone and gets its real first pass once they exist.
+        if self.linking.only_edit_links_on_node_init {
+            self.settled_nodes.extend(self.pass_touched_nodes.drain());
+        } else {
+            self.pass_touched_nodes.clear();
+        }
     }
 
     /// vmic_fast's own (mixed: vinput + fast voice) output -> the default
@@ -731,6 +867,7 @@ fn extract_json_name(value: &str) -> Option<String> {
 
 fn main() {
     let dry_run = std::env::args().any(|a| a == "--dry-run");
+    let linking = load_linking_conf();
 
     pw::init();
 
@@ -750,7 +887,7 @@ fn main() {
     let core = context.connect_rc(None).expect("failed to connect to PipeWire");
     let registry = core.get_registry_rc().expect("failed to get PipeWire registry");
 
-    let manager = Rc::new(RefCell::new(Manager::new(core.clone(), registry.clone(), dry_run)));
+    let manager = Rc::new(RefCell::new(Manager::new(core.clone(), registry.clone(), dry_run, linking.clone())));
 
     // The debounce timer: (re)armed on every registry/metadata event, fires
     // `apply_routes()` once no further event has arrived for `DEBOUNCE`.
@@ -807,7 +944,9 @@ fn main() {
         .register();
 
     println!(
-        "PipeWire Links Manager starting (event-driven, no polling){}...",
+        "PipeWire Links Manager starting (event-driven, no polling; linking.enabled={}, only-edit-links-on-node-init={}){}...",
+        linking.enabled,
+        linking.only_edit_links_on_node_init,
         if dry_run { " [DRY RUN -- no links will be created/destroyed]" } else { "" }
     );
     main_loop.run();

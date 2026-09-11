@@ -1,5 +1,5 @@
 # micproc-jack: the dedicated mic processing node (chain + parameters in
-# ~/.config/pipewire/micproc.toml, hot-reloaded). Feeds the processed stream to
+# ~/.config/pipewire/micproc.ron, hot-reloaded). Feeds the processed stream to
 # the "vmic" app feed; links.rs taps the vmic monitor into the speakers.
 [Unit]
 Description=micproc dedicated mic processing node

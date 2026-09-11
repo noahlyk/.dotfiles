@@ -4,28 +4,35 @@
 //! from the physical mic) and TWO output lanes, each its own independent
 //! chain of stages from the same `preamp`-scaled input onward (a stage can
 //! opt out of one lane via `disable-output-fast`/`disable-output-good` in
-//! `micproc.toml`, default false = runs on both):
-//!   - `out_good_L`/`out_good_R` -- ALSO RNNoise spectral denoising applied
-//!     (`[rnnoise] enabled` in `micproc.toml`), a fixed ~10ms delay when
-//!     on. Feeds vmic_good (what other apps/listeners capture as the mic).
-//!   - `out_fast_L`/`out_fast_R` -- no RNNoise, sub-1ms latency. Feeds
-//!     vmic_fast (self-monitoring only; summed onto speakers/headphones by
-//!     pw-links, never captured by other apps).
+//! `micproc.ron`, default false = runs on both):
+//!   - `out_good_L`/`out_good_R` -- ALSO RNNoise spectral denoising, when
+//!     enabled (see below), a fixed ~10ms delay when on. Feeds vmic_good
+//!     (what other apps/listeners capture as the mic).
+//!   - `out_fast_L`/`out_fast_R` -- sub-1ms latency (unless RNNoise is
+//!     explicitly enabled on this lane too, see below). Feeds vmic_fast
+//!     (self-monitoring only; summed onto speakers/headphones by pw-links,
+//!     never captured by other apps).
 //!
-//! Stage 0 is STEREO→MONO, configured in `micproc.toml` as the first
-//! `[[stages]]` entry (`type = "stereo2mono"`): it owns the input fold
-//! (`mode` picks peak / average / left / right) and the duplication of the
-//! mono result onto both outputs, so a mono mic wired standard L->L / R->R
-//! stays at unit level. Disabled (`enabled = false`) it becomes plain
+//! Stage 0 is STEREO→MONO, configured in `micproc.ron` as the first stage
+//! of whichever mode is active (`type = "stereo2mono"`): it owns the input
+//! fold (`mode` picks peak / average / left / right) and the duplication of
+//! the mono result onto both outputs, so a mono mic wired standard L->L /
+//! R->R stays at unit level. Disabled (`enabled = false`) it becomes plain
 //! stereo passthrough. The rest of the stages are the scalar strip.
 //!
-//! The chain is defined in `micproc.toml` and hot-reloaded via an inotify
+//! The chain is defined in `micproc.ron` and hot-reloaded via an inotify
 //! watch on its directory (`notify`, debounced ~50ms) -- purely event-driven,
 //! no polling loop, no idle CPU between edits. Swap is lock-free (`arc-swap`)
 //! so the realtime thread never locks.
 //!
-//! Chain described entirely in `micproc.toml`: one `[[stages]]` list, order =
-//! list order, each stage's settings inline. Built-ins:
+//! `micproc.ron` holds any number of named `[modes.<name>]` tables, each its
+//! own complete `stages` list (e.g. `vocals`, `instrumental`, `raw`); exactly
+//! one is live at a time, picked by the top-level `active-mode` key. Since
+//! this is hot-reloaded, switching modes is just editing `active-mode` and
+//! saving -- live within ~50ms, no restart. There's nothing special about
+//! any mode name, "raw"/bypass included -- a mode with an empty or
+//! all-`enabled = false` `stages` list IS the bypass, same mechanism as
+//! every other mode. Built-ins usable in any mode's `stages` list:
 //!   - expander   kills low-level background noise (downward expansion,
 //!                floored at `range-db` so it's a gentle noise-reducer,
 //!                not a mute hole)
@@ -38,6 +45,7 @@
 //!                "expander") so compressor makeup gain can't push residual
 //!                noise back past the threshold — no feedback loop.
 //!   - eq         final tone shaping (parametric biquads).
+//!   - rnnoise    spectral denoiser -- `out_good_*` lane only, see above.
 
 use std::env;
 use std::ffi::OsStr;
@@ -58,39 +66,80 @@ use serde::Deserialize;
 static RATE: AtomicU32 = AtomicU32::new(96000);
 static VERSION: AtomicU64 = AtomicU64::new(0);
 
-const DEFAULT_CONF: &str = "micproc.toml";
+const DEFAULT_CONF: &str = "micproc.ron";
 
 // ────────────────────────────────────────────────────────────────────────────
-// CONFIG
+// CONFIG — RON, not TOML: field names are used as-is (snake_case, matching
+// the Rust structs below 1:1 -- no `rename_all` needed anywhere except
+// `type`, a reserved word). `Option<T>` fields are written bare (`foo: 1.0`,
+// not `foo: Some(1.0)`) via the `IMPLICIT_SOME` extension enabled in
+// `ron_options()` below, so optional per-stage knobs stay as terse as they
+// were in the old TOML.
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-struct MicProcConf {
-    #[serde(default)]
-    preamp_db: f32,
-    /// The whole chain, in order: array order = the order the stages run.
-    /// Remove a `[[stages]]` block to drop that stage; `enabled = false`
-    /// bypasses it in place.
-    stages: Vec<StageConf>,
-    /// RNNoise spectral denoiser, applied ONLY to the `out_good_*` output
-    /// lane (see module doc) after the `stages` chain runs. The `out_fast_*`
-    /// lane always skips it, staying at the chain's normal sub-1ms latency.
-    #[serde(default)]
-    rnnoise: RnnoiseConf,
+/// Parser used for every `micproc.ron` read -- the one place `IMPLICIT_SOME`
+/// is turned on.
+fn ron_options() -> ron::Options {
+    ron::Options::default().with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-struct RnnoiseConf {
+struct MicProcConf {
     #[serde(default)]
-    enabled: bool,
+    preamp_db: f32,
+    /// Which `[modes.*]` table is live. Hot-reloaded like everything else --
+    /// edit this and save to switch modes within ~50ms.
+    active_mode: String,
+    /// Every named mode, keyed by the name used in `[modes.<name>]` and
+    /// referenced by `active-mode`. Each is a complete, independent stage
+    /// list -- there's no inheritance/merging between modes, by design (a
+    /// mode is a whole chain, not a diff).
+    #[serde(default)]
+    modes: std::collections::HashMap<String, ModeConf>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct ModeConf {
+    /// This mode's whole chain, in order: array order = the order the
+    /// stages run. Omit a stage to drop it; `enabled = false` bypasses it in
+    /// place without removing it. An empty (or all-disabled) list is a
+    /// complete bypass -- that's not a separate flag, just a mode like any
+    /// other.
+    #[serde(default)]
+    stages: Vec<StageConf>,
+}
+
+/// The active mode's stage list, or `&[]` (a silent bypass, not a crash) if
+/// `active-mode` names a mode that isn't in `modes` -- e.g. mid-edit, or a
+/// typo. Mirrors `load_config_at`'s existing "bad config -> empty chain"
+/// fallback philosophy rather than refusing to run.
+fn active_stages(conf: &MicProcConf) -> &[StageConf] {
+    match conf.modes.get(&conf.active_mode) {
+        Some(m) => &m.stages,
+        None => {
+            eprintln!(
+                "[micproc] active-mode \"{}\" not found in [modes.*] (have: {:?}); running empty chain",
+                conf.active_mode,
+                conf.modes.keys().collect::<Vec<_>>()
+            );
+            &[]
+        }
+    }
+}
+
+/// `type = "rnnoise"` in a mode's `stages` list, same `enabled`/
+/// `disable-output-fast`/`disable-output-good` fields as any other stage.
+/// Not a per-sample `Stage` though -- it's `nnnoiseless`, a frame-based
+/// spectral denoiser with a fixed ~10ms latency, applied after the rest of
+/// the chain runs (`MicDsp::process`), independently per lane.
+fn rnnoise_lanes(stages: &[StageConf]) -> (bool, bool) {
+    let Some(s) = stages.iter().find(|s| s.ty == "rnnoise" && s.enabled) else { return (false, false) };
+    (!s.disable_output_fast, !s.disable_output_good)
 }
 
 /// One stage. Only the keys relevant to `type` are read; the rest of the list
 /// exists so each stage's settings live right next to its `type` line.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "kebab-case")]
 struct StageConf {
     #[serde(rename = "type")]
     ty: String,
@@ -135,7 +184,6 @@ struct StageConf {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "kebab-case")]
 struct EqBand {
     #[serde(rename = "type")]
     ty: String,
@@ -688,7 +736,7 @@ impl Stage {
 /// via a lock-free `ArcSwap<DspSnapshot>`; `MicDsp::adopt` only clones the
 /// (small) `stages` Vec out of it, so none of the parsing / string matching
 /// / biquad trig / logging in `build_snapshot` ever runs on the audio
-/// thread, even at the moment `micproc.toml` is hot-reloaded.
+/// thread, even at the moment `micproc.ron` is hot-reloaded.
 /// A fully-built per-lane chain: independent stage state and gate-detector
 /// indexing, since a stage disabled on one lane (see `disable-output-fast`/
 /// `disable-output-good`) means the two lanes' stage LISTS -- and therefore
@@ -713,14 +761,15 @@ enum Lane {
 /// via a lock-free `ArcSwap<DspSnapshot>`; `MicDsp::adopt` only clones the
 /// (small) `stages` Vecs out of it, so none of the parsing / string matching
 /// / biquad trig / logging in `build_snapshot` ever runs on the audio
-/// thread, even at the moment `micproc.toml` is hot-reloaded.
+/// thread, even at the moment `micproc.ron` is hot-reloaded.
 struct DspSnapshot {
     version: u64,
     preamp: f32,
     stereo2mono: Stereo2Mono,
     fast: LaneChain,
     good: LaneChain,
-    rnnoise_enabled: bool,
+    rnnoise_fast: bool,
+    rnnoise_good: bool,
 }
 
 /// Build ONE lane's stage list + resolved gate-detector index, skipping any
@@ -733,8 +782,8 @@ fn build_lane(stages_conf: &[StageConf], rate: u32, lane: Lane, log: bool) -> La
     let mut gate_det: Vec<Option<String>> = Vec::new();
 
     for sc in stages_conf {
-        if sc.ty.as_str() == "stereo2mono" {
-            continue; // handled separately, shared by both lanes
+        if sc.ty.as_str() == "stereo2mono" || sc.ty.as_str() == "rnnoise" {
+            continue; // handled separately -- not a per-sample Stage
         }
         if !sc.enabled {
             continue;
@@ -854,9 +903,10 @@ fn build_lane(stages_conf: &[StageConf], rate: u32, lane: Lane, log: bool) -> La
 /// types, biquad coefficient trig (`sin`/`cos`/`powf`), and the announce
 /// `eprintln!` all happen here. Called only off the realtime thread.
 fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
+    let stages = active_stages(conf);
     let preamp = 10f32.powf(conf.preamp_db / 20.0);
     let mut stereo2mono = Stereo2Mono::default();
-    for sc in &conf.stages {
+    for sc in stages {
         if sc.ty.as_str() == "stereo2mono" {
             // Stage 0 — the stereo→mono boundary conversion. Not a
             // per-sample stage: it's the input fold + output duplication
@@ -868,19 +918,22 @@ fn build_snapshot(conf: &MicProcConf, rate: u32, version: u64) -> DspSnapshot {
         }
     }
 
-    let fast = build_lane(&conf.stages, rate, Lane::Fast, true);
-    let good = build_lane(&conf.stages, rate, Lane::Good, false);
+    let fast = build_lane(stages, rate, Lane::Fast, true);
+    let good = build_lane(stages, rate, Lane::Good, false);
+    let (rnnoise_fast, rnnoise_good) = rnnoise_lanes(stages);
 
     eprintln!(
-        "[micproc] chain v{version} @ {rate} Hz: preamp {:.1} dB, stereo->mono {} ({stereo2mono:?}), fast-stages {:?}, good-stages {:?}, rnnoise {}",
+        "[micproc] chain v{version} @ {rate} Hz: mode \"{}\", preamp {:.1} dB, stereo->mono {} ({stereo2mono:?}), fast-stages {:?}, good-stages {:?}, rnnoise fast={} good={}",
+        conf.active_mode,
         conf.preamp_db,
-        if conf.stages.iter().any(|s| s.ty == "stereo2mono") { "configured" } else { "default" },
+        if stages.iter().any(|s| s.ty == "stereo2mono") { "configured" } else { "default" },
         fast.stages.iter().map(Stage::name).collect::<Vec<_>>(),
         good.stages.iter().map(Stage::name).collect::<Vec<_>>(),
-        if conf.rnnoise.enabled { "on (out_good_* lane, ~10ms)" } else { "off (out_good_* mirrors out_fast_*)" }
+        rnnoise_fast,
+        rnnoise_good,
     );
 
-    DspSnapshot { version, preamp, stereo2mono, fast, good, rnnoise_enabled: conf.rnnoise.enabled }
+    DspSnapshot { version, preamp, stereo2mono, fast, good, rnnoise_fast, rnnoise_good }
 }
 
 /// RT-thread-owned per-lane state: the (cloned) stage list plus each
@@ -934,7 +987,7 @@ impl LaneDsp {
 
 /// All per-block DSP state for the mono strip -- RT-thread-owned. The two
 /// output lanes are fully independent chains from `preamp` onward (see
-/// `LaneDsp`), each built from `micproc.toml`'s SAME `[[stages]]` list, just
+/// `LaneDsp`), each built from `micproc.ron`'s SAME mode's stage list, just
 /// with any stage marked `disable-output-fast`/`disable-output-good`
 /// dropped from that lane's own copy.
 struct MicDsp {
@@ -943,12 +996,10 @@ struct MicDsp {
     stereo2mono: Stereo2Mono,
     fast: LaneDsp,
     good: LaneDsp,
-    /// Persistent across reloads (its internal FIFO/model state must not
-    /// reset just because `micproc.toml` was edited) -- only ever created
-    /// once, in `new()`. `adopt()` toggles `rnnoise_enabled`, never touches
-    /// this.
-    denoiser: Denoiser,
-    rnnoise_enabled: bool,
+    denoiser_fast: Denoiser,
+    denoiser_good: Denoiser,
+    rnnoise_fast: bool,
+    rnnoise_good: bool,
 }
 
 impl MicDsp {
@@ -959,8 +1010,10 @@ impl MicDsp {
             stereo2mono: Stereo2Mono::default(),
             fast: LaneDsp::new(),
             good: LaneDsp::new(),
-            denoiser: Denoiser::new(),
-            rnnoise_enabled: false,
+            denoiser_fast: Denoiser::new(),
+            denoiser_good: Denoiser::new(),
+            rnnoise_fast: false,
+            rnnoise_good: false,
         }
     }
 
@@ -974,21 +1027,18 @@ impl MicDsp {
         self.stereo2mono = snap.stereo2mono;
         self.fast.adopt(&snap.fast);
         self.good.adopt(&snap.good);
-        self.rnnoise_enabled = snap.rnnoise_enabled;
+        self.rnnoise_fast = snap.rnnoise_fast;
+        self.rnnoise_good = snap.rnnoise_good;
         self.version = snap.version;
     }
 
-    /// Process one mono sample through the preamp, then fork it into two
-    /// fully independent lane chains: `.0` is the fast lane (no RNNoise,
-    /// sub-1ms latency), `.1` is the quality/"good" lane (RNNoise applied,
-    /// ~10ms fixed delay). When RNNoise is disabled in config, the good
-    /// lane's chain output is used directly (no delay either).
     #[inline]
     fn process(&mut self, x: f32) -> (f32, f32) {
         let x = x * self.preamp;
-        let fast = self.fast.run(x);
+        let fast_pre = self.fast.run(x);
+        let fast = if self.rnnoise_fast { self.denoiser_fast.push(fast_pre).unwrap_or(0.0) } else { fast_pre };
         let good_pre = self.good.run(x);
-        let good = if self.rnnoise_enabled { self.denoiser.push(good_pre).unwrap_or(0.0) } else { good_pre };
+        let good = if self.rnnoise_good { self.denoiser_good.push(good_pre).unwrap_or(0.0) } else { good_pre };
         (fast, good)
     }
 }
@@ -1015,14 +1065,14 @@ fn load_config_at(path: &std::path::Path) -> MicProcConf {
         Ok(t) => t,
         Err(e) => {
             eprintln!("[micproc] cannot read {}: {e}; running empty chain", path.display());
-            return MicProcConf { preamp_db: 0.0, stages: Vec::new(), rnnoise: RnnoiseConf::default() };
+            return MicProcConf::default();
         }
     };
-    match toml::from_str::<MicProcConf>(&text) {
+    match ron_options().from_str::<MicProcConf>(&text) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[micproc] bad config {}: {e}; running empty chain", path.display());
-            MicProcConf { preamp_db: 0.0, stages: Vec::new(), rnnoise: RnnoiseConf::default() }
+            MicProcConf::default()
         }
     }
 }
@@ -1037,7 +1087,7 @@ fn load_config() -> MicProcConf {
 }
 
 /// True if an inotify event is an actual content/existence change to
-/// `micproc.toml` -- NOT merely an access (open/read/close). Watching the
+/// `micproc.ron` -- NOT merely an access (open/read/close). Watching the
 /// containing DIRECTORY rather than the file (and filtering by name here)
 /// survives editors that save via rename-over-original (vim, and most
 /// "atomic save" tools): those invalidate a watch on the file's own inode,
@@ -1058,7 +1108,7 @@ fn event_touches_config(event: &notify::Event, file_name: &OsStr) -> bool {
     is_mutation && event.paths.iter().any(|p| p.file_name() == Some(file_name))
 }
 
-/// Hot-reloads `micproc.toml` purely on inotify events (via `notify`) --
+/// Hot-reloads `micproc.ron` purely on inotify events (via `notify`) --
 /// no polling loop, no idle wakeups between edits, and typically low
 /// single-digit-millisecond reaction to a save (bounded by the debounce
 /// window below, not by a fixed poll interval). Does ALL of the expensive
@@ -1350,8 +1400,13 @@ mod tests {
     fn hot_reload_reacts_to_a_file_write() {
         let dir = std::env::temp_dir().join(format!("micproc-jack-test-{}", std::process::id()));
         fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("micproc.toml");
-        fs::write(&path, "preamp-db = 1.0\n[[stages]]\ntype = \"stereo2mono\"\n").expect("write initial config");
+        let path = dir.join("micproc.ron");
+        let conf = |preamp: f32| {
+            format!(
+                r#"(preamp_db: {preamp}, active_mode: "m", modes: {{"m": (stages: [(type: "stereo2mono")])}})"#
+            )
+        };
+        fs::write(&path, conf(1.0)).expect("write initial config");
 
         let initial = load_config_at(&path);
         let initial_version = VERSION.load(Ordering::Relaxed);
@@ -1362,7 +1417,7 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
 
         let before_version = snapshot.load().version;
-        fs::write(&path, "preamp-db = 7.0\n[[stages]]\ntype = \"stereo2mono\"\n").expect("write updated config");
+        fs::write(&path, conf(7.0)).expect("write updated config");
 
         let want_preamp = 10f32.powf(7.0 / 20.0);
         let mut reloaded = false;
@@ -1381,15 +1436,16 @@ mod tests {
 
     #[test]
     fn real_config_parses_and_builds_the_chain() {
-        // NOTE: this reads the user's real, live, hand-tuned micproc.toml --
-        // which stage `[[stages]]` blocks are PRESENT (expander/compressor/
-        // gate/eq, in what order, with what `[rnnoise]` setting) is exactly
-        // what this checks parses/builds without panicking; which of them
+        // NOTE: this reads the user's real, live, hand-tuned micproc.ron --
+        // which stages are PRESENT in the active mode (expander/compressor/
+        // gate/eq/rnnoise, in what order) is exactly what this checks
+        // parses/builds without panicking; which of them
         // are currently `enabled = true` is live-tunable user preference,
         // not a code contract, so this must not hardcode a specific
         // enabled-set (it will legitimately drift as the user tunes).
         let conf = load_config();
-        let kinds: Vec<&str> = conf.stages.iter().map(|s| s.ty.as_str()).collect();
+        let stages = active_stages(&conf);
+        let kinds: Vec<&str> = stages.iter().map(|s| s.ty.as_str()).collect();
         assert!(kinds.first() == Some(&"stereo2mono"), "stage 0 must be stereo2mono, got {kinds:?}");
         assert!(kinds.contains(&"eq"), "chain should still end in an eq stage, got {kinds:?}");
 
@@ -1397,25 +1453,20 @@ mod tests {
         let mut dsp = MicDsp::new();
         dsp.adopt(&snap);
 
-        // stereo2mono is the boundary conversion, not a per-sample stage;
-        // every OTHER present-and-enabled stage produces one Stage entry on
-        // each lane that doesn't specifically disable it (the live config
-        // has no per-lane disables, so fast/good should match exactly).
-        let enabled_non_stereo = conf
-            .stages
-            .iter()
-            .filter(|s| s.enabled && s.ty != "stereo2mono")
-            .count();
+        // stereo2mono and rnnoise are handled separately, not per-sample
+        // stages; every OTHER present-and-enabled stage produces one Stage
+        // entry on each lane that doesn't specifically disable it (the live
+        // config has no per-lane disables, so fast/good should match
+        // exactly).
+        let enabled_non_stereo =
+            stages.iter().filter(|s| s.enabled && s.ty != "stereo2mono" && s.ty != "rnnoise").count();
         assert_eq!(dsp.fast.stages.len(), enabled_non_stereo);
         assert_eq!(dsp.good.stages.len(), enabled_non_stereo);
         assert!(dsp.stereo2mono.enabled);
         assert_eq!(dsp.stereo2mono.fold, FoldMode::Peak);
         assert!(matches!(dsp.fast.stages.last(), Some(Stage::Eq { .. })), "chain should still end in Eq");
 
-        // Whatever RNNoise setting is live, it must parse into the snapshot
-        // without panicking (the actual on/off behavior is covered by the
-        // dedicated `denoiser_*` test, not the real user config here).
-        let _ = snap.rnnoise_enabled;
+        let _ = (snap.rnnoise_fast, snap.rnnoise_good);
 
         // EQ holds the five ported bands.
         match dsp.fast.stages.last() {
@@ -1430,29 +1481,33 @@ mod tests {
     /// different audio on the two lanes at runtime -- not just parse.
     #[test]
     fn per_lane_stage_disable_only_affects_its_own_lane() {
-        let toml = r#"
-            preamp-db = 0.0
-            [[stages]]
-            type = "stereo2mono"
-            enabled = true
-            mode = "peak"
-            [[stages]]
-            type = "gate"
-            # Hard mute below threshold (ratio huge, floor silence) so the
-            # two lanes' outputs are trivially distinguishable at runtime.
-            threshold-db = -10.0
-            ratio = 1000.0
-            range-db = -120.0
-            hysteresis-db = 0.0
-            hold-ms = 0.0
-            attack-ms = 0.001
-            release-ms = 0.001
-            detector-ms = 0.001
-            disable-output-fast = true
-        "#;
-        let conf: MicProcConf = toml::from_str(toml).expect("valid config");
-        assert!(conf.stages[1].disable_output_fast);
-        assert!(!conf.stages[1].disable_output_good);
+        // Hard mute below threshold (ratio huge, floor silence) on the gate
+        // so the two lanes' outputs are trivially distinguishable at runtime.
+        let ron = r#"(
+            preamp_db: 0.0,
+            active_mode: "m",
+            modes: {
+                "m": (stages: [
+                    (type: "stereo2mono", enabled: true, mode: "peak"),
+                    (
+                        type: "gate",
+                        threshold_db: -10.0,
+                        ratio: 1000.0,
+                        range_db: -120.0,
+                        hysteresis_db: 0.0,
+                        hold_ms: 0.0,
+                        attack_ms: 0.001,
+                        release_ms: 0.001,
+                        detector_ms: 0.001,
+                        disable_output_fast: true,
+                    ),
+                ]),
+            },
+        )"#;
+        let conf: MicProcConf = ron_options().from_str(ron).expect("valid config");
+        let stages = active_stages(&conf);
+        assert!(stages[1].disable_output_fast);
+        assert!(!stages[1].disable_output_good);
 
         let snap = build_snapshot(&conf, 48000, 1);
         // Dropped entirely from fast's own list, present on good's.
