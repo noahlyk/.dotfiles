@@ -1,5 +1,7 @@
 (
-    preamp_db: 16.0,
+    preamp_db: 12.0,
+    // active_mode: "raw",
+    // active_mode: "instrumental",
     active_mode: "vocals",
 
     linking: (
@@ -30,7 +32,7 @@
                 ),
                 (
                     type: "compressor",
-                    enabled: false,
+                    enabled: true,
                     threshold_db: -18.0,
                     ratio: 3.5,
                     makeup_db: 0.0,
@@ -55,7 +57,7 @@
                 (
                     type: "eq",
                     enabled: true,
-                    preamp_db: 0.0,
+                    preamp_db: 4.0,
                     band: [
                         (type: "LS", freq: 60,   gain_db: -2.9, q: 0.71),
                         (type: "PK", freq: 130,  gain_db: 1.7,  q: 2.4),
@@ -70,19 +72,9 @@
             stages: [
                 (type: "stereo2mono", enabled: true, mode: "peak"),
                 (
-                    type: "compressor",
-                    enabled: false,
-                    threshold_db: -18.0,
-                    ratio: 3.5,
-                    makeup_db: 0.0,
-                    knee_db: 4.0,
-                    attack_ms: 4.0,
-                    release_ms: 30.0,
-                ),
-                (
                     type: "eq",
                     enabled: true,
-                    preamp_db: -10.0,
+                    preamp_db: -5.0,
                 ),
             ],
         ),

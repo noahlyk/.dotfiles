@@ -30,6 +30,7 @@ USE_CROSSHAIR=0 # new: --crosshair option
 USE_IMMEDIATE_FLIPS=1
 USE_RT=1
 PIN_IRQS=0
+USE_AUDIO=1 # new: --audio/--no-audio option (low-latency pipewire)
 
 GAME_ARGS=()
 
@@ -82,15 +83,13 @@ while [[ $# -gt 0 ]]; do
           PIN_IRQS=1
           ;;
         marvelrivals)
-          USE_SCOPE=1
           HUD_MODE="default"
           USE_CROSSHAIR=1
           PIN_IRQS=1
-          USE_NTSYNC=0
+          PRECONFIG_ARGS=(-dx12)
           export VKD3D_CONFIG=descriptor_heap
-          export RADV_EXPERIMENTAL=heap
-          PRECONFIG_ARGS=(-PSOCompileMode=1)
-          export WINEDLLOVERRIDES="dsound=n"
+          export __GL_TEARING_ALLOWED=1
+          export KWIN_DRM_NO_AMS=1
           ;;
         outlasttrials)
           HUD_MODE="default"
@@ -140,6 +139,8 @@ while [[ $# -gt 0 ]]; do
     --scope) USE_SCOPE=1 ;;
     --no-scope) USE_SCOPE=0 ;;
     --pin-irqs) PIN_IRQS=1 ;;
+    --audio) USE_AUDIO=1 ;;
+    --no-audio) USE_AUDIO=0 ;;
     --)
       shift
       GAME_ARGS+=("$@")
@@ -176,6 +177,7 @@ if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
   echo "  --vrr                Enable VRR/adaptive-sync" >&2
   echo "  --gamemode           Use gamemode" >&2
   echo "  --pin-irqs           Pin IRQs + game to dedicated CPU cores" >&2
+  echo "  --no-audio           Disable low-latency PipeWire tuning (on by default)" >&2
   exit 1
 fi
 
@@ -257,6 +259,15 @@ if [[ "$USE_CROSSHAIR" -eq 1 ]]; then
   export KROSSHAIR=1
 fi
 
+# Low-latency PipeWire audio: request the min quantum already allowed by
+# ~/.config/pipewire/pipewire.conf.d/99-low-latency.conf (16/48000 = ~0.33ms)
+# for this client, and tell any pulseaudio-compat clients (wine/proton) to
+# request the lowest latency they can instead of the ~2s pulse default.
+if [[ "$USE_AUDIO" -eq 1 ]]; then
+  export PIPEWIRE_LATENCY="16/48000"
+  export PULSE_LATENCY_MSEC=1
+fi
+
 # dry-run output
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "mesa_glthread=true"
@@ -282,6 +293,10 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "ENABLE_VKPOST=1"
   fi
   [[ "$USE_CROSSHAIR" -eq 1 ]] && echo "KROSSHAIR=1"
+  if [[ "$USE_AUDIO" -eq 1 ]]; then
+    echo "PIPEWIRE_LATENCY=16/48000"
+    echo "PULSE_LATENCY_MSEC=1"
+  fi
   
   if [[ "$USE_SCOPE" -eq 1 ]]; then
     [[ "$PIN_IRQS" -eq 1 ]] && printf 'sudo pin_irqs && '
@@ -317,12 +332,15 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 # Pin IRQs to CPU 0, game to CPUs 1-11
+# IRQ numbers can shift after reboots/driver updates, and this must never be
+# fatal to the launch (set -e is active) -- skip missing IRQs and never fail.
 pin_irqs() {
   sudo bash -c '
-    echo 1 > /proc/irq/34/smp_affinity 2>/dev/null
-    echo 1 > /proc/irq/38/smp_affinity 2>/dev/null
-    echo 1 > /proc/irq/47/smp_affinity 2>/dev/null
-  '
+    for irq in 34 38 47; do
+      [ -e "/proc/irq/$irq/smp_affinity" ] && echo 1 > "/proc/irq/$irq/smp_affinity"
+    done
+    true
+  ' || true
 }
 
 # launch plain mode
@@ -332,7 +350,7 @@ if [[ "$USE_SCOPE" -eq 0 ]]; then
     PLAIN_CMD=(gamemoderun "${PLAIN_CMD[@]}")
   fi
   if [[ "$PIN_IRQS" -eq 1 ]]; then
-    pin_irqs
+    pin_irqs || true
     PLAIN_CMD=(taskset -c 1-11 "${PLAIN_CMD[@]}")
   fi
   exec setsid -w "${PLAIN_CMD[@]}"
@@ -371,7 +389,7 @@ fi
 CMD+=(-- "${GAME_ARGS[@]}")
 
 if [[ "$PIN_IRQS" -eq 1 ]]; then
-  pin_irqs
+  pin_irqs || true
   CMD=(taskset -c 1-11 "${CMD[@]}")
 fi
 
