@@ -9,6 +9,9 @@ local servers = {
   omnisharp = {},
   jdtls = {},
   bashls = {},
+  jsonls = {},
+  taplo = {},
+  yamlls = {},
   lua_ls = {
     settings = {
       Lua = {
@@ -63,7 +66,7 @@ return {
     event = "VeryLazy",
     config = function()
       require("mason-lspconfig").setup({
-        automatic_installation = false,
+        automatic_installation = true,
       })
     end
   },
