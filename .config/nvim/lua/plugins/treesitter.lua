@@ -81,6 +81,21 @@ return {
     config = function(_, opts)
       require('nvim-treesitter').setup(opts)
       vim.treesitter.language.register('ron', 'ron')
+
+      -- This branch of nvim-treesitter no longer auto-attaches highlighting
+      -- from opts.highlight; it must be started explicitly per filetype.
+      -- Wildcard + pcall since ensure_installed holds parser names, not
+      -- filetypes (e.g. the "bash" parser maps to filetype "sh").
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = '*',
+        callback = function()
+          pcall(vim.treesitter.start)
+        end,
+      })
+
+      -- The plugin lazy-loads on BufReadPost/BufNewFile, which can fire after
+      -- FileType already ran for that same first buffer, so also try here.
+      pcall(vim.treesitter.start)
     end,
   },
 }
