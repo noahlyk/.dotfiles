@@ -57,7 +57,7 @@
                 (
                     type: "eq",
                     enabled: true,
-                    preamp_db: 4.0,
+                    preamp_db: 2.0,
                     band: [
                         (type: "LS", freq: 60,   gain_db: -2.9, q: 0.71),
                         (type: "PK", freq: 130,  gain_db: 1.7,  q: 2.4),

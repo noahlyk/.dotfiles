@@ -76,6 +76,9 @@ while [[ $# -gt 0 ]]; do
         smite2)
           HUD_MODE="default"
           ;;
+        onlyup)
+          PRECONFIG_ARGS=(-dx11)
+          ;;
         thefinals)
           USE_SCOPE=1
           HUD_MODE="default"
@@ -86,6 +89,8 @@ while [[ $# -gt 0 ]]; do
           HUD_MODE="default"
           USE_CROSSHAIR=1
           PIN_IRQS=1
+          USE_NTSYNC=1
+          USE_DLSS=1
           PRECONFIG_ARGS=(-dx12)
           export VKD3D_CONFIG=descriptor_heap
           export __GL_TEARING_ALLOWED=1
