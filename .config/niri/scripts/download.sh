@@ -291,28 +291,26 @@ for ((i=0; i<${#urls[@]}; i++)); do
             fi
         fi
     else
-        # gallery-dl doesn't report which files it created, so snapshot the
-        # output dir before/after and diff to find only the new file(s) —
-        # in --temp mode out_dir is shared/persistent, so without this we'd
-        # re-clipboard every file ever downloaded into it.
-        before_files=()
-        if [[ -n "$out_dir" ]]; then
-            while IFS= read -r -d '' f; do
-                before_files+=("$f")
-            done < <(find "$out_dir" -type f -not -name "$TEMP_MARKER" -print0 2>/dev/null)
-        fi
-
-        if ! gallery-dl "$url" -D "${out_dir:-$filepath}" --cookies-from-browser firefox "${other_args[@]}"; then
+        # gallery-dl prints the path of each file it writes to stdout —
+        # capture that instead of scanning out_dir, which (in --temp mode)
+        # is shared/persistent across invocations and would either
+        # re-clipboard every past file, or (if re-downloading a URL whose
+        # deterministic filename already existed) miss the new file entirely.
+        gallery_out=$(gallery-dl "$url" -D "${out_dir:-$filepath}" --cookies-from-browser firefox "${other_args[@]}")
+        gallery_status=$?
+        echo "$gallery_out"
+        if [[ $gallery_status -ne 0 ]]; then
             failed=true
             continue
         fi
 
         if [[ -n "$out_dir" ]]; then
-            while IFS= read -r -d '' f; do
-                if [[ ! " ${before_files[*]} " == *" $f "* ]]; then
-                    new_files+=("$f")
-                fi
-            done < <(find "$out_dir" -type f -not -name "$TEMP_MARKER" -print0 2>/dev/null)
+            while IFS= read -r f; do
+                # Lines prefixed with "# " are files gallery-dl skipped
+                # because they already existed (e.g. re-downloading a URL
+                # already saved in the shared --temp dir) — not new.
+                [[ -n "$f" && "$f" != \#\ * ]] && new_files+=("$f")
+            done <<< "$gallery_out"
         fi
     fi
 
