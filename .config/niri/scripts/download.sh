@@ -106,6 +106,13 @@ clipboard_file() {
     fi
 }
 
+clipboard_files() {
+    local f
+    for f in "$@"; do
+        clipboard_file "$f"
+    done
+}
+
 clipboard_dir() {
     while IFS= read -r -d '' f; do
         clipboard_file "$f"
@@ -214,6 +221,7 @@ fi
 for ((i=0; i<${#urls[@]}; i++)); do
     url="${urls[$i]}"
     filepath="${filepaths[$i]:-}"
+    new_files=()
 
     # Determine output directory
     if $temp; then
@@ -269,31 +277,49 @@ for ((i=0; i<${#urls[@]}; i++)); do
             failed=true
             continue
         fi
+        # yt-dlp already prints exactly the file it produced — use that
+        # instead of re-scanning out_dir, which (in --temp mode) is shared
+        # and persistent across invocations and would pick up old files too.
+        new_files=("$downloaded_file")
 
         # Trim to highlight point if found (video mode only; nothing to trim for audio-only output)
         if [[ -n "$start" && "$format_mode" == "video" ]]; then
-            if [[ -n "$out_dir" ]]; then
-                for f in "$out_dir"/*; do
-                    [[ -f "$f" ]] && vidfile="$f" && break
-                done
-            else
-                vidfile="$filepath"
-            fi
+            vidfile="$downloaded_file"
             if [[ -f "$vidfile" ]]; then
                 tmpfile="${vidfile}.trim.tmp"
                 ffmpeg -ss "$start" -i "$vidfile" -c copy "$tmpfile" && mv "$tmpfile" "$vidfile"
             fi
         fi
     else
-        if ! gallery-dl "$url" -D "${out_dir:-$filepath}" --cookies-from-browser firefox "${other_args[@]}"; then
+        # gallery-dl prints the path of each file it writes to stdout —
+        # capture that instead of scanning out_dir, which (in --temp mode)
+        # is shared/persistent across invocations and would either
+        # re-clipboard every past file, or (if re-downloading a URL whose
+        # deterministic filename already existed) miss the new file entirely.
+        gallery_out=$(gallery-dl "$url" -D "${out_dir:-$filepath}" --cookies-from-browser firefox "${other_args[@]}")
+        gallery_status=$?
+        echo "$gallery_out"
+        if [[ $gallery_status -ne 0 ]]; then
             failed=true
             continue
         fi
+
+        if [[ -n "$out_dir" ]]; then
+            while IFS= read -r f; do
+                # Lines prefixed with "# " are files gallery-dl skipped
+                # because they already existed (e.g. re-downloading a URL
+                # already saved in the shared --temp dir) — not new.
+                [[ -n "$f" && "$f" != \#\ * ]] && new_files+=("$f")
+            done <<< "$gallery_out"
+        fi
     fi
 
-    # Always copy downloaded files to clipboard
+    # Copy only the file(s) produced by this download to the clipboard —
+    # never the whole out_dir, since --temp reuses a shared persistent dir.
     if [[ -n "$out_dir" ]]; then
-        clipboard_dir "$out_dir"
+        if [[ ${#new_files[@]} -gt 0 ]]; then
+            clipboard_files "${new_files[@]}"
+        fi
     elif [[ -d "$filepath" ]]; then
         clipboard_dir "$filepath"
     elif [[ -f "$filepath" ]]; then
