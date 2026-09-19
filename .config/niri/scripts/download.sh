@@ -1,11 +1,13 @@
 #!/bin/bash
 
 TEMP_PREFIX="/tmp/download."
+TEMP_MARKER=".download-session"
 
 highlight=false
 temp=false
 notify=false
 temp_filename=""
+format_mode="video"
 urls=()
 filepaths=()
 other_args=()
@@ -21,6 +23,43 @@ elif command -v xclip &>/dev/null; then
     clip_cmd="xclip -selection clipboard"
     paste_cmd="xclip -selection clipboard -o"
 fi
+
+show_help() {
+    cat <<'EOF'
+Usage: download.sh [options] [url] [filepath]
+
+Download a URL (YouTube via yt-dlp, otherwise via gallery-dl) and copy the
+result to the clipboard. If no URL is given, reads one from the clipboard.
+
+Positional:
+  url                    URL to download (or taken from clipboard)
+  filepath               Save to this path (file or directory)
+
+Options:
+  --temp [filename]      Save to the shared temp dir instead of pwd/filepath.
+                          Reuses one persistent /tmp/download.XXXXXX dir
+                          (marked with a hidden .download-session file)
+                          across invocations instead of making a new one
+                          each time. Optional filename to use for the file.
+  --clean-temp           Remove all /tmp/download.* temp dirs and exit.
+  --highlight            Trim YouTube video to its SponsorBlock highlight.
+  --notify                Send a desktop notification on completion/failure.
+
+Output type (YouTube/yt-dlp only; ignored for gallery-dl URLs):
+  --video, --mp4         Best video, merged to mp4 (default behavior).
+  --audio                Best audio only, native container (e.g. m4a/webm).
+  --mp3                  Best audio only, converted to mp3.
+
+Any other flags are passed through to yt-dlp/gallery-dl unchanged.
+
+Examples:
+  download.sh "https://youtu.be/xyz"
+  download.sh "https://youtu.be/xyz" ~/Videos/out.mp4
+  download.sh --temp "https://youtu.be/xyz"
+  download.sh --temp --mp3 "https://youtu.be/xyz"
+  download.sh --clean-temp
+EOF
+}
 
 clipboard_file() {
     local file="$1"
@@ -82,14 +121,28 @@ is_youtube() {
     [[ "$1" =~ ^https?://(www\.)?(youtube\.com|youtu\.be)/ ]]
 }
 
+# Find the existing marked temp dir, or create a new one and mark it, so
+# repeated --temp downloads share one directory instead of piling up.
+get_temp_dir() {
+    local d
+    for d in "${TEMP_PREFIX}"*; do
+        [[ -d "$d" && -f "$d/$TEMP_MARKER" ]] && { echo "$d"; return; }
+    done
+    d=$(mktemp -d "${TEMP_PREFIX}XXXXXX")
+    touch "$d/$TEMP_MARKER"
+    echo "$d"
+}
+
 # Argument parsing:
 #   download "url"                      -> save to pwd
 #   download "url" filepath             -> save to filepath
-#   download "url" --temp               -> save to /tmp (auto name)
-#   download "url" --temp filename      -> save to /tmp/filename
-#   download --temp                     -> url from clipboard, save to /tmp
-#   download --temp --notify            -> url from clipboard, save to /tmp, notify
+#   download "url" --temp               -> save to shared /tmp dir (auto name)
+#   download "url" --temp filename      -> save to shared /tmp dir/filename
+#   download --temp                     -> url from clipboard, save to shared /tmp dir
+#   download --temp --notify            -> url from clipboard, save to shared /tmp dir, notify
 #   download --clean-temp               -> remove all /tmp/download.* dirs
+#   download --audio / --mp3            -> audio-only output (YouTube)
+#   download --video / --mp4            -> video output (YouTube, default)
 for arg in "$@"; do
     if $expect_temp_filename; then
         expect_temp_filename=false
@@ -100,7 +153,10 @@ for arg in "$@"; do
         # Not a filename — fall through to re-process this arg
     fi
 
-    if [[ "$arg" == "--clean-temp" ]]; then
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+        show_help
+        exit 0
+    elif [[ "$arg" == "--clean-temp" ]]; then
         rm -rf "${TEMP_PREFIX}"*
         echo "Cleaned all download temp dirs."
         exit 0
@@ -111,6 +167,12 @@ for arg in "$@"; do
         expect_temp_filename=true
     elif [[ "$arg" == "--notify" ]]; then
         notify=true
+    elif [[ "$arg" == "--video" || "$arg" == "--mp4" ]]; then
+        format_mode="video"
+    elif [[ "$arg" == "--audio" ]]; then
+        format_mode="audio"
+    elif [[ "$arg" == "--mp3" ]]; then
+        format_mode="mp3"
     elif [[ "$arg" =~ ^https?:// ]]; then
         urls+=("$arg")
         expect_filepath=true
@@ -142,13 +204,19 @@ fi
 
 failed=false
 
+# One shared temp dir for the whole invocation (and reused across invocations).
+shared_temp_dir=""
+if $temp; then
+    shared_temp_dir=$(get_temp_dir)
+fi
+
 for ((i=0; i<${#urls[@]}; i++)); do
     url="${urls[$i]}"
     filepath="${filepaths[$i]:-}"
 
     # Determine output directory
     if $temp; then
-        out_dir=$(mktemp -d "${TEMP_PREFIX}XXXXXX")
+        out_dir="$shared_temp_dir"
     elif [[ -n "$filepath" ]]; then
         out_dir=""  # explicit path handled separately
     else
@@ -175,9 +243,23 @@ for ((i=0; i<${#urls[@]}; i++)); do
             [[ "$start" =~ ^[0-9]+(\.[0-9]+)?$ ]] || start=""
         fi
 
+        # Build format-specific yt-dlp args
+        ytdlp_format_args=()
+        case "$format_mode" in
+            audio)
+                ytdlp_format_args=(-f bestaudio)
+                ;;
+            mp3)
+                ytdlp_format_args=(-f bestaudio --extract-audio --audio-format mp3)
+                ;;
+            *)
+                ytdlp_format_args=(--merge-output-format mp4)
+                ;;
+        esac
+
         notify-send -a "download" "YT Download started" "${urls[*]}"
         if ! downloaded_file=$(yt-dlp "$url" "${other_args[@]}" \
-            --merge-output-format mp4 \
+            "${ytdlp_format_args[@]}" \
             --sponsorblock-mark poi_highlight \
             --no-write-info-json \
             --clean-info-json \
@@ -187,8 +269,8 @@ for ((i=0; i<${#urls[@]}; i++)); do
             continue
         fi
 
-        # Trim to highlight point if found
-        if [[ -n "$start" ]]; then
+        # Trim to highlight point if found (video mode only; nothing to trim for audio-only output)
+        if [[ -n "$start" && "$format_mode" == "video" ]]; then
             if [[ -n "$out_dir" ]]; then
                 for f in "$out_dir"/*; do
                     [[ -f "$f" ]] && vidfile="$f" && break
