@@ -109,7 +109,7 @@ clipboard_file() {
 clipboard_dir() {
     while IFS= read -r -d '' f; do
         clipboard_file "$f"
-    done < <(find "$1" -type f -print0)
+    done < <(find "$1" -type f -not -name "$TEMP_MARKER" -print0)
 }
 
 file_uri() {
