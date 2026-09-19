@@ -32,23 +32,24 @@ Download a URL (YouTube via yt-dlp, otherwise via gallery-dl) and copy the
 result to the clipboard. If no URL is given, reads one from the clipboard.
 
 Positional:
-  url                    URL to download (or taken from clipboard)
-  filepath               Save to this path (file or directory)
+  url                      URL to download (or taken from clipboard)
+  filepath                 Save to this path (file or directory)
 
 Options:
-  --temp [filename]      Save to the shared temp dir instead of pwd/filepath.
-                          Reuses one persistent /tmp/download.XXXXXX dir
-                          (marked with a hidden .download-session file)
-                          across invocations instead of making a new one
-                          each time. Optional filename to use for the file.
-  --clean-temp           Remove all /tmp/download.* temp dirs and exit.
-  --highlight            Trim YouTube video to its SponsorBlock highlight.
-  --notify                Send a desktop notification on completion/failure.
+  -h, --help               Show this help and exit.
+  --temp [filename]        Save to the shared temp dir instead of pwd/filepath.
+                            Reuses one persistent /tmp/download.XXXXXX dir
+                            (marked with a hidden .download-session file)
+                            across invocations instead of making a new one
+                            each time. Optional filename to use for the file.
+  --clean-temp             Remove all /tmp/download.* temp dirs and exit.
+  --highlight              Trim YouTube video to its SponsorBlock highlight.
+  --notify                 Send a desktop notification on completion/failure.
 
 Output type (YouTube/yt-dlp only; ignored for gallery-dl URLs):
-  --video, --mp4         Best video, merged to mp4 (default behavior).
-  --audio                Best audio only, native container (e.g. m4a/webm).
-  --mp3                  Best audio only, converted to mp3.
+  --video, --mp4           Best video, merged to mp4 (default behavior).
+  --audio                  Best audio only, native container (e.g. m4a/webm).
+  --mp3                    Best audio only, converted to mp3.
 
 Any other flags are passed through to yt-dlp/gallery-dl unchanged.
 
