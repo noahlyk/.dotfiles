@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
+import os
 import subprocess
 from sys import argv, exit
 from obsws_python import ReqClient
+
+SOUNDBOARD = os.path.expanduser("~/Soundboard/play.sh")
 
 HOST = "localhost"
 PORT = 4455
@@ -52,11 +55,11 @@ def main():
             if status.output_active:
                 obs.stop_record()
                 print("Recording stopped")
-                subprocess.Popen('/home/fib/Soundboard/play.sh STOP', shell=True)
+                subprocess.Popen([SOUNDBOARD, 'STOP'])
             else:
                 obs.start_record()
                 print("Recording started")
-                subprocess.Popen('/home/fib/Soundboard/play.sh KC_6', shell=True)
+                subprocess.Popen([SOUNDBOARD, 'KC_6'])
 
         elif cmd == "toggle-recording":
             status = obs.get_record_status()

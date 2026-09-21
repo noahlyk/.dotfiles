@@ -120,7 +120,7 @@ local zcd="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump"
 [[ -d "${zcd:h}" ]] || mkdir -p "${zcd:h}"
 [[ -f "$zcd" ]] && compinit -C -d "$zcd" || compinit -d "$zcd"
 
-# Keymux completions (generate once with: keymux completion zsh > ~/.zsh/completions/_keymux)
+# Keymux ships its own completion via its package fpath entry; nothing to generate here.
 
 # Completion styling - minimal but functional
 zstyle ':completion:*' completer _complete _approximate
@@ -195,7 +195,7 @@ function _expand_last_command() {
 zle -N _expand_last_command
 bindkey '!!' _expand_last_command
 
-# Load environment files (lazy)
+# Load environment files (runs on every interactive shell start)
 function load_environment_files() {
     set -a
     [[ -f ~/.api_keys.env ]] && source ~/.api_keys.env
