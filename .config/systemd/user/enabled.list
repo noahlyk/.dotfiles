@@ -8,7 +8,7 @@ git-maintenance@weekly.timer
 gnome-keyring-daemon.socket
 keymux-niri.service
 p11-kit-server.socket
-pipewire-links.service
+pipewire-crisp-vocals.service
 pipewire-pulse.socket
 pipewire.socket
 ssh-agent.socket

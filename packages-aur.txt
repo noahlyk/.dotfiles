@@ -1,4 +1,5 @@
 appimagetool-bin
+auto_sober
 bedrock-on-linux-bin
 cachyos-ananicy-rules-git
 chameleos
@@ -6,6 +7,8 @@ claude-code
 clipboard-sync
 codename-goose-bin
 crosshair-maker
+droidcam
+droidcam-obs-plugin
 dropbox-cli
 dsearch-bin
 gallery-dl
@@ -14,16 +17,19 @@ google-breakpad
 greetd-dms-greeter-bin
 icu76
 inkscape-bin
-jstest-gtk-git
 keymux
 krosshair
+livecaptions
 lua-cjson
+mangowm
 moonlight-qt-bin
 nginx-mod-fancyindex
 nginx-mod-lua
 obs-wayland-hotkeys-git
 opencode-bin
+pipewire-crisp-vocals
 python-obsws
+qt6ct-kde
 quickshell-git
 rdap-bin
 reaction-time-test
@@ -40,6 +46,8 @@ tmux-leap
 tree-sitter-cli-github-bin
 ttf-twemoji
 ttf-twemoji-color
+v4l2loopback-dc-dkms
+vencord-bin
 vkbasalt
 vkpost
 vlc-pause-click-plugin
