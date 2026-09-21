@@ -12,8 +12,8 @@ show_diff() {
          --unchanged-line-format='' <(echo "$old") <(echo "$new") || true
 }
 
-# --- Extract words from packages-custom.sh to filter ---
-custom_words=$(tr -s '[:space:]' '\n' < packages-custom.sh 2>/dev/null | sort -u || true)
+# --- Packages tracked-packages.sh installs itself, to exclude from state ---
+custom_words=$(grep -oP '^# tracked-packages-exclude:\s*\K.*' packages-custom.sh 2>/dev/null | tr ',' '\n' | sed 's/^ *//; s/ *$//' | sort -u || true)
 
 # --- Explicit AUR packages ---
 echo "Recording explicit AUR packages..."

@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$(readlink -f "$0")")"
+
 echo "Bootstrapping your Arch setup..."
 
 sudo -v
-while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
+{ while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done; } 2>/dev/null &
+SUDO_KEEPALIVE_PID=$!
+trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
+
+# --- git-crypt guard ---
+# .ssh/**, .tableplus/**, .projects, .config/git/identity*, .config/git/gitleaks.toml
+# are git-crypt encrypted. A fresh clone checks them out as ciphertext; stow would
+# then happily symlink that ciphertext into $HOME (e.g. ~/.ssh/id_ed25519) with no
+# error. Refuse to stow until they're confirmed unlocked. See README.md for the
+# manual unlock steps (gpg --decrypt/--import, git-crypt unlock).
+if [[ -f .config/git/gitleaks.toml ]] && [[ "$(file --brief --mime-type .config/git/gitleaks.toml)" != text/* ]]; then
+    echo "git-crypt-encrypted files are still locked (e.g. .config/git/gitleaks.toml is ciphertext)." >&2
+    echo "Run the gpg import + 'git-crypt unlock' steps from README.md first, then re-run bootstrap.sh." >&2
+    exit 1
+fi
 
 # --- diff helper ---
 show_diff() {
@@ -21,9 +37,9 @@ echo "Running custom package script..."
 
 # --- Explicit packages ---
 echo "Installing explicit pacman packages..."
-missing_pkgs=$(comm -23 <(sort packages.txt) <(pacman -Qq | sort))
-if [[ -n "$missing_pkgs" ]]; then
-    sudo pacman -S --needed --noconfirm $missing_pkgs
+mapfile -t missing_pkgs < <(comm -23 <(sort packages.txt) <(pacman -Qq | sort))
+if [[ ${#missing_pkgs[@]} -gt 0 ]]; then
+    sudo pacman -S --needed --noconfirm "${missing_pkgs[@]}"
 fi
 
 # --- AUR packages ---
@@ -37,7 +53,7 @@ done < packages-aur.txt
 echo "Restowing directories..."
 stow -R .
 
-DOTFILES_SYSTEMD="$HOME/.dotfiles/.config/systemd"
+DOTFILES_SYSTEMD="$(pwd)/.config/systemd"
 
 # --- system units ---
 if [[ -f "$DOTFILES_SYSTEMD/system/enabled.list" ]]; then

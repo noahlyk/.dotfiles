@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
+# tracked-packages-exclude: yay-bin
+# (installed here via makepkg, not pacman/yay -S, so save-state.sh must not
+#  re-add it to packages.txt/packages-aur.txt as if it were untracked)
 
 if ! pacman -Qq yay >/dev/null 2>&1; then
     (
