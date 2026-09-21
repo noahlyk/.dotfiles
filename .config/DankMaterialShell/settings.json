@@ -329,6 +329,32 @@
     "hslLightness": 1,
     "valid": true
   },
+  "desktopWidgetInstances": [
+    {
+      "id": "dw_1789440751964_pqq4ethb7",
+      "widgetType": "activateLinux",
+      "name": "Activate Linux Watermark",
+      "enabled": false,
+      "config": {
+        "displayPreferences": [
+          {
+            "name": "DP-1",
+            "model": "AMZG25F6F"
+          }
+        ],
+        "showOnOverlay": true,
+        "showOnOverview": true,
+        "showOnOverviewOnly": false,
+        "clickThrough": true,
+        "syncPositionAcrossScreens": true,
+        "watermarkOpacity": 66,
+        "customizeText": true,
+        "firstLine": "Activate Arch Linux",
+        "secondLine": "Go to Settings to activate Arch Linux."
+      },
+      "group": null
+    }
+  ],
   "builtInPluginSettings": {
     "dms_settings_search": {
       "trigger": "?"
@@ -341,6 +367,9 @@
     },
     "dms_qr_generator": {
       "trigger": "qrg"
+    },
+    "dms_notepad": {
+      "enabled": true
     }
   },
   "launcherPluginVisibility": {
@@ -350,5 +379,5 @@
   },
   "frameShowOnOverview": true,
   "frameCloseGaps": false,
-  "configVersion": 17
+  "configVersion": 18
 }

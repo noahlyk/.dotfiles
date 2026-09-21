@@ -60,5 +60,21 @@
   },
   "timeManager": {
     "enabled": false
+  },
+  "linuxWallpaperEngine": {
+    "enabled": true,
+    "namedPlaylists": {
+      "Default": []
+    },
+    "monitorScenes": {
+      "DP-1": "3376170815",
+      "HDMI-A-1": "3376170815"
+    },
+    "outputSettings": {
+      "DP-1": {
+        "fps": 144
+      }
+    },
+    "activeType": "scene"
   }
 }

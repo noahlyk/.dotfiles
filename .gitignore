@@ -23,3 +23,9 @@ Pictures/Screenshots/
 node_modules/
 package-lock.json
 
+
+# KDE session autosave state
+.config/session/
+
+# Claude Code worktrees
+.claude/worktrees/

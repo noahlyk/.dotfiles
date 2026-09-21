@@ -1,0 +1,123 @@
+// crisp-vocals.ron — DSP chain + wiring config, hot-reloaded on save.
+//
+// Installed here by the package as a template
+// (/usr/share/pipewire-crisp-vocals/crisp-vocals.ron.example); crisp-vocals
+// and crisp-links both auto-bootstrap it to
+// ~/.config/pipewire/crisp-vocals.ron on first run (never overwriting an
+// existing one) and fill in `hardware.mic_node_name` from your current
+// default audio source -- see crisp-config::bootstrap_if_missing(). Edit
+// freely after that -- crisp-vocals and crisp-links both hot-reload/re-read
+// from that path. Use `crisp-links mic <node-name>|--auto|--list` to change
+// the routed mic later without hand-editing this file.
+(
+    preamp_db: 12.0,
+    active_mode: "instrumental",
+
+    // This machine's hardware wiring, read by crisp-links.
+    hardware: (
+        // Physical mic's PipeWire node name (substring match), e.g.
+        // "Komplete", "USB PnP Audio Device". Filled in automatically on
+        // first run from @DEFAULT_AUDIO_SOURCE@ -- see
+        // crisp-config::bootstrap_if_missing(). Blank = crisp-links won't
+        // route a physical mic into crisp-vocals until this is set (use
+        // `crisp-links mic <node-name>|--auto|--list`).
+        mic_node_name: "alsa_input.usb-Native_Instruments_Komplete_Audio_1_0000607B-00.analog-stereo",
+
+        // Node name patterns (substring match) that monitor taps (see
+        // `linking.monitor_through_default_output` below, and
+        // virtual-input's always-on speaker route) should go to. Empty
+        // (default) = follow PipeWire's current default output device.
+        // Non-empty = monitoring goes ONLY to the matched device(s).
+        monitor_output_devices: ["Komplete"],
+    ),
+
+    // Optional: MIDI-keyboard-triggered synth fan-in (on-demand fluidsynth
+    // into vinput). Delete this whole block, or set enabled: false, if you
+    // don't use a MIDI keyboard.
+    synth: (
+        enabled: false,
+        soundfont_path: "/usr/share/soundfonts/FluidR3_GM.sf2",
+        midi_keyboard_name: "",
+    ),
+
+    linking: (
+        enabled: true,
+        only_edit_links_on_node_init: true,
+        // false (default): you never hear yourself -- virtual-mic's own
+        // mixed output is not tapped into your speakers. Set true to opt
+        // in to that self-monitor tap (e.g. so a MIDI-keyboard synth fanned
+        // into vinput is audible to you).
+        monitor_through_default_output: true,
+    ),
+
+    modes: {
+        "raw": (
+            stages: [
+                (type: "stereo2mono", enabled: true, mode: "peak"),
+            ],
+        ),
+        "vocals": (
+            stages: [
+                (type: "stereo2mono", enabled: true, mode: "peak"),
+                (type: "rnnoise", enabled: true),
+                (
+                    type: "expander",
+                    enabled: false,
+                    threshold_db: -55.0,
+                    ratio: 2.5,
+                    knee_db: 10.0,
+                    range_db: -16.0,
+                    attack_ms: 3.0,
+                    release_ms: 150.0,
+                    detector_ms: 10.0,
+                ),
+                (
+                    type: "compressor",
+                    enabled: true,
+                    threshold_db: -18.0,
+                    ratio: 5.5,
+                    makeup_db: 0.0,
+                    knee_db: 4.0,
+                    attack_ms: 4.0,
+                    release_ms: 30.0,
+                ),
+                (
+                    type: "gate",
+                    enabled: true,
+                    threshold_db: -56.0,
+                    ratio: 3.0,
+                    knee_db: 8.0,
+                    range_db: -20.0,
+                    hysteresis_db: 8.0,
+                    hold_ms: 350.0,
+                    attack_ms: 4.0,
+                    release_ms: 140.0,
+                    detector_ms: 10.0,
+                    detector: "expander",
+                ),
+                (
+                    type: "eq",
+                    enabled: true,
+                    preamp_db: 4.0,
+                    band: [
+                        (type: "LS", freq: 60,   gain_db: -2.9, q: 0.71),
+                        (type: "PK", freq: 130,  gain_db: 1.7,  q: 2.4),
+                        (type: "PK", freq: 245,  gain_db: 3.1,  q: 1.1),
+                        (type: "PK", freq: 1650, gain_db: -9.4, q: 4.4),
+                        (type: "HS", freq: 8300, gain_db: 2.2,  q: 1.3),
+                    ],
+                ),
+            ],
+        ),
+        "instrumental": (
+            stages: [
+                (type: "stereo2mono", enabled: true, mode: "peak"),
+                (
+                    type: "eq",
+                    enabled: true,
+                    preamp_db: -5.0,
+                ),
+            ],
+        ),
+    },
+)

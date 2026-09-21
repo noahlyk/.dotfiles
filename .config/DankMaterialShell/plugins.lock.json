@@ -1,10 +1,9 @@
 {
   "lockfileVersion": 1,
   "plugins": {
-    "dankKDEConnect": {
-      "repo": "https://github.com/AvengeMedia/dms-plugins",
-      "path": "DankKDEConnect",
-      "commit": "f4583449f12920e0a2f16808b00a860c27f0173d"
+    "activateLinux": {
+      "repo": "https://github.com/hthienloc/dms-activate-linux",
+      "commit": "34f359aedcac9d27ff5df51d43cc41031ea00f80"
     },
     "extendedNetworkToggle": {
       "repo": "https://github.com/notherealmarco/dms-plugin-extended-network",

@@ -55,6 +55,7 @@ while [[ $# -gt 0 ]]; do
           ;;
         kovaaks)
           USE_SCOPE=1
+          USE_NTSYNC=1
           HUD_MODE="default"
           USE_CROSSHAIR=1
           PIN_IRQS=1
@@ -77,6 +78,8 @@ while [[ $# -gt 0 ]]; do
           HUD_MODE="default"
           ;;
         onlyup)
+          USE_SCOPE=1
+          HUD_MODE="default"
           PRECONFIG_ARGS=(-dx11)
           ;;
         thefinals)
@@ -399,7 +402,6 @@ if [[ "$PIN_IRQS" -eq 1 ]]; then
 fi
 
 # Run gamescope
-notify-send "${CMD[@]}"
 set -m
 "${CMD[@]}" &
 GAMESCOPE_PID=$!
