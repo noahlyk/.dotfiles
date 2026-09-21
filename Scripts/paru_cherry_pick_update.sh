@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if ! command -v paru &>/dev/null; then
+    echo "Error: paru is not installed" >&2
+    exit 1
+fi
+
 # Fetch list of updatable packages
 packages=$(paru -Qu | awk '{print $1}')
 

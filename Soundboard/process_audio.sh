@@ -3,6 +3,9 @@
 # Script to process MP3 files: remove leading silence and normalize volume
 # Processes all files to .new versions, then if successful, backs up originals and replaces them
 
+SCRIPT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+cd "$SCRIPT_DIR" || exit 1
+
 # Create backup directory if it doesn't exist
 mkdir -p .bak
 

@@ -3,8 +3,8 @@
 file="$1"
 [ -f "$file" ] || { echo "Usage: itrim <mediafile>"; exit 1; }
 
-tmp="/tmp/itrim-$UID.txt"
-rm -f "$tmp"
+tmp="$(mktemp /tmp/itrim.XXXXXX)"
+trap 'rm -f "$tmp"' EXIT
 
 # Launch mpv interactively
 ITRIM_FILE="$tmp" mpv \
@@ -31,4 +31,3 @@ else
   echo "✘ Cancelled"
 fi
 
-rm -f "$tmp"

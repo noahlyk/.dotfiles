@@ -74,7 +74,6 @@ PATTERN="$1"
 
 MATCHING_FILES=("$SCRIPT_DIR/$PATTERN"*)
 
-echo "${MATCHING_FILES[@]}"
 if [ ${#MATCHING_FILES[@]} -eq 0 ] || [ ! -f "${MATCHING_FILES[0]}" ]; then
     echo "No file found matching pattern: $PATTERN"
     exit 1
@@ -82,18 +81,24 @@ fi
 
 MATCHING_FILE=${MATCHING_FILES[$RANDOM % ${#MATCHING_FILES[@]}]}
 
+remove_pid() {
+    local pid="$1"
+    [ -f "$PID_FILE" ] || return 0
+    local tmp
+    tmp="$(mktemp "$PID_FILE.XXXXXX")"
+    grep -v -e "^$pid$" "$PID_FILE" > "$tmp" 2>/dev/null
+    if [ -s "$tmp" ]; then
+        mv "$tmp" "$PID_FILE"
+    else
+        rm -f "$PID_FILE" "$tmp"
+    fi
+}
+
 cleanup() {
     if [ -n "$PID1" ] && kill -0 "$PID1" 2>/dev/null; then
         kill -TERM "$PID1" 2>/dev/null
     fi
-    if [ -f "$PID_FILE" ]; then
-        grep -v -e "^$PID1$" "$PID_FILE" > "$PID_FILE.tmp" 2>/dev/null
-        if [ -s "$PID_FILE.tmp" ]; then
-            mv "$PID_FILE.tmp" "$PID_FILE"
-        else
-            rm -f "$PID_FILE" "$PID_FILE.tmp"
-        fi
-    fi
+    remove_pid "$PID1"
 }
 
 trap cleanup EXIT INT TERM
@@ -110,12 +115,3 @@ paplay -d "virtual-input" --volume="${VOLUME_INT:-65536}" "$MATCHING_FILE" &
 PID1=$!
 echo "$PID1" >> "$PID_FILE"
 wait $PID1
-
-if [ -f "$PID_FILE" ]; then
-    grep -v -e "^$PID1$" "$PID_FILE" > "$PID_FILE.tmp" 2>/dev/null
-    if [ -s "$PID_FILE.tmp" ]; then
-        mv "$PID_FILE.tmp" "$PID_FILE"
-    else
-        rm -f "$PID_FILE" "$PID_FILE.tmp"
-    fi
-fi

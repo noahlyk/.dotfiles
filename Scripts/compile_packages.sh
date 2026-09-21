@@ -1,4 +1,5 @@
 #!/bin/bash
+set -o pipefail
 
 # Configuration
 input_dir="$HOME/.dotfiles"

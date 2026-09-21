@@ -406,6 +406,7 @@ set -m
 "${CMD[@]}" &
 GAMESCOPE_PID=$!
 set +m
+trap 'kill -TERM "$GAMESCOPE_PID" 2>/dev/null || true' TERM INT
 
 wait $GAMESCOPE_PID
 
