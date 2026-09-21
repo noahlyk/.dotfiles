@@ -5,7 +5,7 @@
 
 input {
     mouse {
-        accel-speed 0.0
+        accel-speed 0.6
     }
     touchpad {
         tap
