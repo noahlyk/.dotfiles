@@ -27,6 +27,10 @@ binds {
         spawn "dms" "ipc" "call" "lock" "lock"; 
     }
 
+    Ctrl+Alt+Delete hotkey-overlay-title="Task Manager" { 
+        spawn "dms" "ipc" "call" "processlist" "toggle"; 
+    }    
+
     // Audio
     XF86AudioRaiseVolume allow-when-locked=true {
         spawn "dms" "ipc" "call" "audio" "increment" "3";
