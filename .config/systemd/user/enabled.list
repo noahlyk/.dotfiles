@@ -6,6 +6,7 @@ git-maintenance@daily.timer
 git-maintenance@hourly.timer
 git-maintenance@weekly.timer
 gnome-keyring-daemon.socket
+kde-baloo.service
 keymux-niri.service
 p11-kit-server.socket
 pipewire-crisp-vocals.service

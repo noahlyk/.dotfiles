@@ -5,6 +5,7 @@ adw-gtk-theme
 alacritty
 amd-ucode
 ananicy-cpp
+ark
 arm-none-eabi-gcc
 audacity
 avrdude
@@ -42,6 +43,7 @@ dms-shell-niri
 docker
 docker-compose
 dolphin
+dolphin-plugins
 dosfstools
 earlyoom
 efibootmgr
@@ -49,7 +51,9 @@ ethtool
 eza
 fastfetch
 fd
+ffmpegthumbs
 figlet
+filelight
 firefox
 fish
 flatpak
@@ -80,12 +84,15 @@ iptables
 irqbalance
 jemalloc
 jq
+kdegraphics-thumbnailers
 kdenlive
 keepassxc
 khal
 kimageformats
+kio-admin
 kio-fuse
 kitty
+kompare
 ladspa
 less
 lib32-gamemode

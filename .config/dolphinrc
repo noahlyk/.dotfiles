@@ -1,6 +1,15 @@
 [General]
 Version=202
 ViewPropsTimestamp=2026,9,18,13,20,59.797
+BrowseThroughArchives=true
+ConfirmClosingMultipleTabs=false
+RememberOpenedTabs=true
+ShowFullPath=true
+ShowFullPathInTitlebar=true
+ShowSpaceInfo=true
+ShowStatusBar=true
+SplitView=false
+UseTabForSwitchingSplitView=true
 
 [KFileDialog Settings]
 Places Icons Auto-resize=false
@@ -8,3 +17,6 @@ Places Icons Static Size=22
 
 [MainWindow]
 MenuBar=Disabled
+
+[VersionControl]
+enabledPlugins=Git
