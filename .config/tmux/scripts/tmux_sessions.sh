@@ -41,6 +41,25 @@ case "$1" in
     "total")
         get_total_sessions
         ;;
+    "update-index")
+        # Writes "N/total" into each session's own @session_index_text option instead of
+        # computing it live via a #() job in the status line: a #() job that itself calls
+        # back into `tmux` (as get_current_session_index/get_total_sessions do) reliably
+        # comes back empty when tmux is running it as part of evaluating its own status
+        # format -- the job's `tmux` call can't get a response until that same redraw
+        # finishes, so it stalls forever. Recomputing here and setting a plain option
+        # (which the bar just reads, no job involved) sidesteps that entirely. Bound to
+        # session-created / session-closed / client-session-changed hooks and run once at
+        # config load, so every session's value stays current.
+        total=$(get_total_sessions)
+        index=0
+        while IFS= read -r line; do
+            session_name=$(echo "$line" | awk '{print $2}')
+            tmux set -t "$session_name" @session_index_text "$((index + 1))/$total"
+            ((index++))
+        done < <(tmux list-sessions -F "#{session_created} #{session_name} #{session_windows}" | sort -n)
+        exit 0
+        ;;
     "list"|"info")
         index=0
         attached_session=$(tmux display -p "#{session_name}")

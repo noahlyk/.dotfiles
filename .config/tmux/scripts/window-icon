@@ -1,0 +1,16 @@
+#!/bin/sh
+case "$1" in
+  nvim|vim|vi) printf '%s' '' ;;
+  claude) printf '%s' '󶀀' ;;
+  node|bun|deno|yarn|npm|pnpm|npx|bunx) printf '%s' '' ;;
+  zsh|bash|fish|sh|dash) printf '%s' '' ;;
+  yazi|lf|ranger) printf '%s' '󰉋' ;;
+  git|lazygit|tig) printf '%s' '' ;;
+  btop|htop|top) printf '%s' '󰍛' ;;
+  ssh|mosh) printf '%s' '󰣀' ;;
+  python|python3|ipython) printf '%s' '' ;;
+  cargo|rustc) printf '%s' '' ;;
+  docker|lazydocker) printf '%s' '' ;;
+  man|less|bat) printf '%s' '' ;;
+  *) printf '%s' "$1" ;;
+esac

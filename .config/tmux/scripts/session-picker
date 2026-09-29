@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Session picker for Alt+s: most recent first, pane icons (Claude icons are coloured by state),
+# live preview. Enter switches, ctrl-x kills, a new name + Enter creates.
+set -uo pipefail
+
+script_path=$(readlink -f "$0")
+script_dir=$(dirname "$script_path")
+
+theme_hex() { tmux show -gv "@thm_$1" 2>/dev/null; }
+
+ansi_fg() {
+  local hex=${1#\#}
+  printf '\033[38;2;%d;%d;%dm' "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
+}
+
+pane_icons() {
+  local panes=$1 dim=$2 yellow=$3 red=$4 green=$5 reset=$'\033[0m'
+  local pane command state key colour
+  local -A pane_counts=()
+  local -a keys_in_order=()
+  for pane in $panes; do
+    command=${pane%%|*}
+    state=${pane#*|}
+    [[ $command == claude ]] || state=""
+    key="$command|$state"
+    [[ -n ${pane_counts[$key]:-} ]] || keys_in_order+=("$key")
+    pane_counts[$key]=$(( ${pane_counts[$key]:-0} + 1 ))
+  done
+
+  local -a state_order=(waiting working done "")
+  local ordered_key wanted_state
+  local -a sorted_keys=()
+  for wanted_state in "${state_order[@]}"; do
+    for key in "${keys_in_order[@]}"; do
+      [[ ${key%%|*} == claude && ${key#*|} == "$wanted_state" ]] && sorted_keys+=("$key")
+    done
+  done
+  for key in "${keys_in_order[@]}"; do
+    [[ ${key%%|*} == claude ]] || sorted_keys+=("$key")
+  done
+
+  for ordered_key in "${sorted_keys[@]}"; do
+    command=${ordered_key%%|*}
+    state=${ordered_key#*|}
+    case $state in
+      waiting) colour=$red ;;
+      working) colour=$yellow ;;
+      done) colour=$green ;;
+      *) colour=$dim ;;
+    esac
+    printf '%s%s' "$colour" "$("$script_dir/window-icon" "$command")"
+    (( pane_counts[$ordered_key] > 1 )) && printf '%s' "${pane_counts[$ordered_key]}"
+    printf '%s ' "$reset"
+  done
+}
+
+list_sessions() {
+  local reset=$'\033[0m' bold=$'\033[1m'
+  local dim yellow red green
+  dim=$(ansi_fg "$(theme_hex overlay_1)")
+  yellow=$(ansi_fg "$(theme_hex yellow)")
+  red=$(ansi_fg "$(theme_hex red)")
+  green=$(ansi_fg "$(theme_hex green)")
+  local current_session_id
+  current_session_id=$(tmux show -gv @picker_origin_session 2>/dev/null)
+  [[ -n $current_session_id ]] || current_session_id=$(tmux display -p '#{session_id}')
+
+  local current_row=""
+  local field_separator=$'\x1f'
+  while IFS=$field_separator read -r _ session_id session_name panes; do
+    local short_name=${session_name##*/}
+    [[ -n $short_name ]] || short_name=$session_name
+    local icons row
+    icons=$(pane_icons "$panes" "$dim" "$yellow" "$red" "$green")
+    if [[ $session_id == "$current_session_id" ]]; then
+      row=$(printf '%s\t%s%-24.24s %s %s(here) %s%s' "$session_id" "$dim" "$short_name" "$icons" "$dim" "$session_name" "$reset")
+      current_row=$row
+    else
+      row=$(printf '%s\t%s%-24.24s%s %s %s%s%s' "$session_id" "$bold" "$short_name" "$reset" "$icons" "$dim" "$session_name" "$reset")
+      printf '%s\n' "$row"
+    fi
+  done < <(tmux list-sessions -F "#{session_last_attached}${field_separator}#{session_id}${field_separator}#{session_name}${field_separator}#{W:#{P:#{pane_current_command}|#{@claude_state} }}" | sort -t "$field_separator" -k1,1nr)
+  [[ -n $current_row ]] && printf '%s\n' "$current_row"
+}
+
+kill_session() {
+  local session_id=$1 session_name answer
+  session_name=$(tmux display -p -t "$session_id" '#{session_name}' 2>/dev/null) || return 0
+  printf '\n  Kill session %s? [y/N] ' "$session_name"
+  read -rsn1 answer
+  [[ $answer == y || $answer == Y ]] && tmux kill-session -t "$session_id"
+}
+
+pick_session() {
+  local text surface_0 surface_1 overlay_1 mauve
+  text=$(theme_hex fg); surface_0=$(theme_hex surface_0); surface_1=$(theme_hex surface_1)
+  overlay_1=$(theme_hex overlay_1); mauve=$(theme_hex mauve)
+
+  local choice
+  choice=$(list_sessions | FZF_DEFAULT_OPTS="" fzf \
+    --ansi --delimiter=$'\t' --with-nth=2.. --no-sort --layout=reverse \
+    --prompt='  ' --pointer='▌' --marker='' --info=inline-right --no-scrollbar \
+    --header='enter switch · ctrl-x kill · new name + enter creates' \
+    --preview='tmux capture-pane -ep -t {1}' \
+    --preview-window='right,55%,border-left' \
+    --color="bg:-1,bg+:${surface_0},fg:${text},fg+:${text},hl:${mauve},hl+:${mauve}" \
+    --color="pointer:${mauve},prompt:${mauve},info:${overlay_1},header:${overlay_1}" \
+    --color="border:${surface_1},separator:${surface_1},preview-border:${surface_1},gutter:-1" \
+    --bind="ctrl-x:execute('$script_path' --kill {1})+reload('$script_path' --list)" \
+    --bind='enter:accept-or-print-query') || return 0
+
+  local first_field=${choice%%$'\t'*}
+  if [[ $choice == *$'\t'* && $first_field == \$* ]]; then
+    tmux switch-client -t "$first_field"
+  elif [[ -n $choice ]]; then
+    tmux has-session -t "=$choice" 2>/dev/null || tmux new-session -d -s "$choice" -c "$HOME"
+    tmux switch-client -t "=$choice"
+  fi
+}
+
+case ${1:-} in
+  --list) list_sessions ;;
+  --kill) kill_session "${2:-}" ;;
+  *) pick_session ;;
+esac

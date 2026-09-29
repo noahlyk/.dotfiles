@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Most-recently-used session queue behind Alt+Tab.
+#   record <session_id>  push a session to the front (client-session-changed hook)
+#   refresh              drop dead sessions and recompute the target (session-closed hook)
+#   previous             switch to the newest surviving session that is not the current one
+set -uo pipefail
+
+history_option=@session_history
+target_name_option=@previous_session_name
+
+living_session_ids() { tmux list-sessions -F '#{session_id}'; }
+
+read_history() { tmux show -gv "$history_option" 2>/dev/null; }
+
+first_other_session_id() {
+  local current_id=$1 history_id
+  for history_id in $(read_history); do
+    [[ $history_id != "$current_id" ]] && printf '%s' "$history_id" && return
+  done
+}
+
+publish_target_name() {
+  local target_id target_name=""
+  target_id=$(first_other_session_id "$1")
+  [[ -n $target_id ]] && target_name=$(tmux display -p -t "$target_id" '#{session_name}' 2>/dev/null)
+  tmux set -g "$target_name_option" "$target_name"
+}
+
+write_history() {
+  local living history_id kept=""
+  living=" $(living_session_ids | tr '\n' ' ') "
+  for history_id in "$@"; do
+    [[ $living == *" $history_id "* && " $kept " != *" $history_id "* ]] && kept+="$history_id "
+  done
+  tmux set -g "$history_option" "${kept% }"
+}
+
+case ${1:-} in
+  record)
+    write_history "$2" $(read_history)
+    publish_target_name "$2"
+    ;;
+  refresh)
+    write_history $(read_history)
+    publish_target_name "$(tmux display -p '#{session_id}')"
+    ;;
+  previous)
+    current_id=$(tmux display -p '#{session_id}')
+    write_history $(read_history)
+    target_id=$(first_other_session_id "$current_id")
+    if [[ -n $target_id ]]; then tmux switch-client -t "$target_id"; else tmux switch-client -l; fi
+    ;;
+esac

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Visiting a window acknowledges every finished Claude pane in it.
+set -uo pipefail
+
+window_id=$1
+field_separator=$'\x1f'
+tmux list-panes -t "$window_id" -F "#{pane_id}${field_separator}#{@claude_state}" | while IFS=$field_separator read -r pane_id state; do
+  if [[ $state == done ]]; then tmux set -pu -t "$pane_id" @claude_state; fi
+done

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Overrides catppuccin's @thm_* colours with the live DankMaterialShell (DMS) palette,
+# read from kitty's DMS-generated theme file so the bar follows the current wallpaper theme
+# instead of a static catppuccin-mocha palette. Re-run on tmux start / `M-r` reload; tmux has
+# no way to react to DMS regenerating the theme file on its own.
+set -eu
+
+theme_file="$HOME/.config/kitty/dank-theme.conf"
+[ -r "$theme_file" ] || exit 0
+
+hex() {
+  awk -v key="$1" '$1 == key { print $2; exit }' "$theme_file"
+}
+
+bg=$(hex background)
+fg=$(hex foreground)
+color1=$(hex color1)   # red
+color2=$(hex color2)   # green
+color3=$(hex color3)   # yellow
+color6=$(hex color6)   # cyan slot == DMS accent (accent_bg_color)
+color8=$(hex color8)   # bright black -- the only muted/dim tone DMS's kitty palette offers
+color12=$(hex color12) # bright blue
+
+[ -n "$bg" ] && tmux set -g @thm_bg "$bg"
+[ -n "$fg" ] && tmux set -g @thm_fg "$fg"
+[ -n "$bg" ] && tmux set -g @thm_crust "$bg"
+[ -n "$color8" ] && tmux set -g @thm_surface_1 "$color8"
+[ -n "$color8" ] && tmux set -g @thm_overlay_1 "$color8"
+[ -n "$color1" ] && tmux set -g @thm_red "$color1"
+[ -n "$color2" ] && tmux set -g @thm_green "$color2"
+[ -n "$color3" ] && tmux set -g @thm_yellow "$color3"
+[ -n "$color12" ] && tmux set -g @thm_peach "$color12"
+[ -n "$color6" ] && tmux set -g @thm_mauve "$color6"
+
+# Window-number badge colours (catppuccin defaults to its own mocha picks otherwise)
+[ -n "$color8" ] && tmux set -g @catppuccin_window_number_color "$color8"
+[ -n "$color6" ] && tmux set -g @catppuccin_window_current_number_color "$color6"
+
+exit 0

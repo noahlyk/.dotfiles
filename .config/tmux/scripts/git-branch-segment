@@ -1,0 +1,5 @@
+#!/bin/sh
+pane_path="$1"
+branch=$(git -C "$pane_path" branch --show-current 2>/dev/null) || exit 0
+[ -n "$branch" ] || branch=$(git -C "$pane_path" rev-parse --short HEAD 2>/dev/null) || exit 0
+printf '%s' "$branch"
