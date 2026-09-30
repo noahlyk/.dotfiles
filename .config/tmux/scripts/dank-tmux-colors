@@ -24,6 +24,7 @@ color12=$(hex color12) # bright blue
 [ -n "$bg" ] && tmux set -g @thm_bg "$bg"
 [ -n "$fg" ] && tmux set -g @thm_fg "$fg"
 [ -n "$bg" ] && tmux set -g @thm_crust "$bg"
+[ -n "$color8" ] && tmux set -g @thm_surface_0 "$color8"
 [ -n "$color8" ] && tmux set -g @thm_surface_1 "$color8"
 [ -n "$color8" ] && tmux set -g @thm_overlay_1 "$color8"
 [ -n "$color1" ] && tmux set -g @thm_red "$color1"
