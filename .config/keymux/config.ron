@@ -19,7 +19,6 @@
         ema_alpha: 0.02,                        // Exponential moving average alpha for adaptive learning
         auto_save_interval_secs: 30,            // Auto-save adaptive stats every 30 seconds
         hold_do_nothing_emits_tap: true,
-        test_shouldnt_validate: true,
     ),
     enabled_keyboards: [
         "*",
@@ -56,6 +55,15 @@
 
                 KC_I: KC_PGUP,
                 KC_U: KC_PGDN,
+                KC_Y: KC_HOME,
+                KC_O: KC_END,
+                KC_P: KC_DEL,
+                KC_N: KC_DEL,
+                KC_M: KC_ENT,
+
+                KC_COMM: KC_VOLD,
+                KC_DOT: KC_VOLU,
+                KC_SLSH: KC_MUTE,
 
                 KC_BSPC: CMD("/home/fib/.config/keymux/password.sh"),
             },
