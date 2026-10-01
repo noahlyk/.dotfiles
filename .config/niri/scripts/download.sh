@@ -126,19 +126,24 @@ file_uri() {
 }
 
 is_youtube() {
-    [[ "$1" =~ ^https?://(www\.)?(youtube\.com|youtu\.be)/ ]]
+    [[ "$1" =~ ^https?://(www\.|music\.|m\.)?(youtube\.com|youtu\.be)/ ]]
 }
 
 # Find the existing marked temp dir, or create a new one and mark it, so
 # repeated --temp downloads share one directory instead of piling up.
+# Locked so two concurrent `dl --temp` invocations can't each create their
+# own temp dir in a race.
 get_temp_dir() {
-    local d
-    for d in "${TEMP_PREFIX}"*; do
-        [[ -d "$d" && -f "$d/$TEMP_MARKER" ]] && { echo "$d"; return; }
-    done
-    d=$(mktemp -d "${TEMP_PREFIX}XXXXXX")
-    touch "$d/$TEMP_MARKER"
-    echo "$d"
+    local d lock="/tmp/.download-session.lock"
+    (
+        flock 9
+        for d in "${TEMP_PREFIX}"*; do
+            [[ -d "$d" && -f "$d/$TEMP_MARKER" ]] && { echo "$d"; exit; }
+        done
+        d=$(mktemp -d "${TEMP_PREFIX}XXXXXX")
+        touch "$d/$TEMP_MARKER"
+        echo "$d"
+    ) 9>"$lock"
 }
 
 # Argument parsing:
@@ -226,6 +231,7 @@ for ((i=0; i<${#urls[@]}; i++)); do
     # Determine output directory
     if $temp; then
         out_dir="$shared_temp_dir"
+        [[ -n "$filepath" ]] && echo "  (ignoring '$filepath' — --temp saves to the shared temp dir instead)" >&2
     elif [[ -n "$filepath" ]]; then
         out_dir=""  # explicit path handled separately
     else
@@ -259,28 +265,42 @@ for ((i=0; i<${#urls[@]}; i++)); do
                 ytdlp_format_args=(-f bestaudio)
                 ;;
             mp3)
-                ytdlp_format_args=(-f bestaudio --extract-audio --audio-format mp3)
+                ytdlp_format_args=(-f bestaudio --extract-audio --audio-format mp3 --audio-quality 0)
                 ;;
             *)
                 ytdlp_format_args=(--merge-output-format mp4)
                 ;;
         esac
 
-        notify-send -a "download" "YT Download started" "${urls[*]}"
-        if ! downloaded_file=$(yt-dlp "$url" "${other_args[@]}" \
+        # Only tag SponsorBlock chapters when we might trim on them —
+        # otherwise this is an extra SponsorBlock API call on every download.
+        sponsorblock_args=()
+        $highlight && sponsorblock_args=(--sponsorblock-mark poi_highlight)
+
+        $notify && notify-send -a "download" "YT Download started" "${urls[*]}"
+
+        # Write the produced path(s) to a file with --print-to-file instead
+        # of capturing yt-dlp's stdout via $(...) — capturing swallows the
+        # progress output too, so the download looks hung until it finishes.
+        # A file (one path per line) also survives multi-entry playlists,
+        # where $(...) capture would have collapsed everything into one
+        # unusable "filename".
+        pathfile=$(mktemp)
+        if ! yt-dlp "$url" "${other_args[@]}" \
             "${ytdlp_format_args[@]}" \
-            --sponsorblock-mark poi_highlight \
+            "${sponsorblock_args[@]}" \
             --no-write-info-json \
             --clean-info-json \
-            --print "after_move:filepath" \
-            "${ytdlp_out[@]}"); then
+            --print-to-file "after_move:filepath" "$pathfile" \
+            "${ytdlp_out[@]}"; then
+            echo "  (yt-dlp failed for $url)" >&2
             failed=true
+            rm -f "$pathfile"
             continue
         fi
-        # yt-dlp already prints exactly the file it produced — use that
-        # instead of re-scanning out_dir, which (in --temp mode) is shared
-        # and persistent across invocations and would pick up old files too.
-        new_files=("$downloaded_file")
+        mapfile -t new_files < "$pathfile"
+        rm -f "$pathfile"
+        downloaded_file="${new_files[0]:-}"
 
         # Trim to highlight point if found (video mode only; nothing to trim for audio-only output)
         if [[ -n "$start" && "$format_mode" == "video" ]]; then
@@ -334,3 +354,6 @@ if $notify; then
         notify-send -a "download" "Download complete" "${urls[*]}"
     fi
 fi
+
+$failed && exit 1
+exit 0
