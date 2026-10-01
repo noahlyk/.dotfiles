@@ -1,0 +1,44 @@
+// tmux-leap config
+// Full reference copy of this file: /usr/share/tmux-leap/config.ron.template
+//
+// Uncomment a line to change it. Everything below is optional.
+#![enable(implicit_some)]
+
+(
+    // Small status icon next to any project with an open tmux session:
+    // Claude Code running, an editor open, or just a busy (non-idle) pane.
+    // Open sessions with nothing notable going on still show in white, just
+    // without an icon. On by default.
+    annotate_status: true,
+
+    // Live preview on the right of the picker: the contents of the
+    // highlighted project's tmux session, if it has one (the preview
+    // window hides itself otherwise). On by default.
+    preview_screen: true,
+
+    // Swap `annotate_status` above for your own command instead. Must
+    // print "session_name<TAB>text" lines, one per session. Comment out
+    // `annotate_status` first — only one of the two can be on at a time.
+    // annotate: "tmux list-sessions -F \"#{session_name}\\t#{session_windows} windows\"",
+
+    // Swap `preview_screen` above for your own command instead. {1} is the
+    // highlighted project's absolute path. Comment out `preview_screen`
+    // first — only one of the two can be on at a time.
+    // preview_command: "ls -la {1}",
+
+    projects: [
+        "/tmp",
+        "~ --depth 1",
+        "~/.config --depth 1",
+        "~/.dotfiles/scripts",
+        "~/code --depth 2",
+        "/run/media --depth 2",
+        "~/Videos/Recordings",
+        "/etc/nixos",
+        "~/.local/share/Steam/steamapps/common --depth 1",
+        "~/.local/share/Steam/steamapps/compatdata/2211170/pfx/drive_c/users/steamuser/AppData/Roaming/Godot/app_userdata/Unrailed2",
+        "~/.local/bin",
+        "/mnt --depth 1",
+        "/mnt/storage0/code/fibsussy/majorpicks/.claude/worktrees --depth 1",
+    ],
+)
