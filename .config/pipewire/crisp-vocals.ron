@@ -11,7 +11,8 @@
 // the routed mic later without hand-editing this file.
 (
     preamp_db: 12.0,
-    active_mode: "instrumental",
+    active_mode: "vocals",
+    // active_mode: "instrumental",
 
     // This machine's hardware wiring, read by crisp-links.
     hardware: (
@@ -62,13 +63,13 @@
                 (type: "rnnoise", enabled: true),
                 (
                     type: "expander",
-                    enabled: false,
-                    threshold_db: -55.0,
+                    enabled: true,
+                    threshold_db: -52.0,
                     ratio: 2.5,
                     knee_db: 10.0,
                     range_db: -16.0,
                     attack_ms: 3.0,
-                    release_ms: 150.0,
+                    release_ms: 250.0,
                     detector_ms: 10.0,
                 ),
                 (
@@ -84,21 +85,21 @@
                 (
                     type: "gate",
                     enabled: true,
-                    threshold_db: -56.0,
+                    threshold_db: -50.0,
                     ratio: 3.0,
                     knee_db: 8.0,
                     range_db: -20.0,
                     hysteresis_db: 8.0,
                     hold_ms: 350.0,
                     attack_ms: 4.0,
-                    release_ms: 140.0,
+                    release_ms: 240.0,
                     detector_ms: 10.0,
                     detector: "expander",
                 ),
                 (
                     type: "eq",
                     enabled: true,
-                    preamp_db: 4.0,
+                    preamp_db: 6.0,
                     band: [
                         (type: "LS", freq: 60,   gain_db: -2.9, q: 0.71),
                         (type: "PK", freq: 130,  gain_db: 1.7,  q: 2.4),
