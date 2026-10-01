@@ -76,5 +76,9 @@
       }
     },
     "activeType": "scene"
+  },
+  "alarmClock": {
+    "enabled": true,
+    "notificationUrgency": "critical"
   }
 }

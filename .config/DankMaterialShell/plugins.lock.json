@@ -5,6 +5,11 @@
       "repo": "https://github.com/hthienloc/dms-activate-linux",
       "commit": "34f359aedcac9d27ff5df51d43cc41031ea00f80"
     },
+    "alarmClock": {
+      "repo": "https://github.com/lucyfire/dms-plugins",
+      "path": "alarmClock",
+      "commit": "c99ba77c848721fbb8b8c3307638ea10d5dccdd9"
+    },
     "extendedNetworkToggle": {
       "repo": "https://github.com/notherealmarco/dms-plugin-extended-network",
       "commit": "f58b4b28391eaa6157e9b89faf9837f711315930"

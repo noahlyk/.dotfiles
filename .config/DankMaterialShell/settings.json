@@ -120,7 +120,11 @@
   "notificationOverlayEnabled": true,
   "lockAtStartup": true,
   "lockScreenNotificationMode": 1,
+  "notificationTimeoutLow": 3000,
+  "notificationTimeoutNormal": 8000,
+  "notificationTimeoutCritical": 60000,
   "notificationCompactMode": true,
+  "notificationShowTimeoutBar": true,
   "notificationHistoryMaxCount": 200,
   "notificationHistoryMaxAgeDays": 0,
   "notificationFocusedMonitor": true,
@@ -132,6 +136,9 @@
   "screenPreferences": {
     "notepad": [],
     "dock": [
+      "all"
+    ],
+    "wallpaper": [
       "all"
     ]
   },
@@ -148,7 +155,15 @@
       "enabled": true,
       "position": 0,
       "screenPreferences": [
-        "all"
+        {
+          "name": "HDMI-A-1",
+          "model": "VS278",
+          "modelIndex": 1
+        },
+        {
+          "name": "DP-1",
+          "model": "AMZG25F6F"
+        }
       ],
       "showOnLastDisplay": true,
       "leftWidgets": [
@@ -160,6 +175,20 @@
         {
           "id": "launcherButton",
           "enabled": true
+        },
+        {
+          "id": "spacer",
+          "enabled": true,
+          "size": 5
+        },
+        {
+          "id": "workspaceSwitcher",
+          "enabled": true
+        },
+        {
+          "id": "spacer",
+          "enabled": true,
+          "size": 5
         },
         {
           "id": "clock",
@@ -193,6 +222,10 @@
       ],
       "centerWidgets": [],
       "rightWidgets": [
+        {
+          "id": "alarmClock",
+          "enabled": true
+        },
         {
           "id": "capsLockIndicator",
           "enabled": true
