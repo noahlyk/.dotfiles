@@ -64,6 +64,12 @@ while [[ $# -gt 0 ]]; do
           HUD_MODE="default"
           USE_CROSSHAIR=1
           ;;
+        sober)
+          export WAYLAND_DISPLAY=""
+          # USE_SCOPE=1
+          # HUD_MODE="default"
+          # USE_CROSSHAIR=1
+          ;;
         how2fish)
           HUD_MODE="default"
           USE_CROSSHAIR=1

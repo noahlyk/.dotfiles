@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Wrapper used by the Sober .desktop entry: forces the FPS cap patch before
+# every launch, then hands off to the real flatpak invocation. Kept as a
+# standalone script (rather than inline in the .desktop Exec= line) because
+# the Desktop Entry Exec key is parsed with its own strict quoting rules and
+# does not support shell constructs like `;` or `$HOME` directly.
+set -euo pipefail
+
+"$(dirname "$(readlink -f "$0")")/sober-fps-patch" || true
+
+exec /usr/bin/flatpak run --branch=stable --arch=x86_64 --command=sober --file-forwarding org.vinegarhq.Sober -- @@u "$@" @@

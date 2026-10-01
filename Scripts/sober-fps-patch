@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Forces Sober/Roblox's FramerateCap to 9999 (Roblox still hard-caps the
+# engine at ~240 FPS regardless, but this avoids relying on the "0 = uncapped"
+# sentinel). Re-run on every Sober launch since Roblox can rewrite this file
+# on exit and silently reset the cap back to its default.
+set -euo pipefail
+
+XML="$HOME/.var/app/org.vinegarhq.Sober/data/sober/appData/GlobalBasicSettings_13.xml"
+
+if [[ -f "$XML" ]]; then
+    sed -i -E 's#<int name="FramerateCap">[0-9]+</int>#<int name="FramerateCap">9999</int>#' "$XML"
+fi
