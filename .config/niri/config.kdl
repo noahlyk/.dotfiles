@@ -2,13 +2,14 @@ layout {
     background-color "transparent"
     center-focused-column "never"
     default-column-display "normal"
+    always-center-single-column
     preset-column-widths {
         proportion 0.25
         proportion 0.50
         proportion 0.75
-        proportion 1.00
+        proportion 0.97
     }
-    default-column-width { proportion 0.50; }
+    default-column-width { proportion 0.97; }
     border {
         // active-color   "#cc4444"      // Softer red
         active-color   "#808080f5"      // Neutral gray
