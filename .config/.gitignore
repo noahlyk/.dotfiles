@@ -159,3 +159,9 @@ pipewire/pw.dot
 
 # nvim plugin lockfile (regenerates on plugin updates)
 nvim/lazy-lock.json
+
+# Kronometer window-state blob (geometry/toolbar state, regenerates)
+kronometerrc
+
+# steno-lessons practice stats (mutates every practice session)
+steno-lessons/progress.json

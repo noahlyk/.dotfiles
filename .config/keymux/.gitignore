@@ -1,2 +1,7 @@
 password.txt
 all_key_stats.json
+
+# steno dictionaries that grow/change from usage or local testing, not
+# portable config -- the real dictionary is steno/main.json
+steno/user.json
+steno/test.json
