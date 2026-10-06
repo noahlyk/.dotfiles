@@ -52,6 +52,12 @@ while [[ $# -gt 0 ]]; do
           HUD_MODE="default"
           USE_CROSSHAIR=1
           PIN_IRQS=1
+          USE_NTSYNC=1
+          # DXVK async shader compilation: OW2's DX11->Vulkan translation can
+          # stall-spike on first-seen shaders; async compiles them off the
+          # render thread instead, trading rare brief visual pop-in for no
+          # frametime spike.
+          export DXVK_ASYNC=1
           ;;
         kovaaks)
           USE_SCOPE=1
