@@ -45,6 +45,9 @@ start_engine() {
     # Ignore USR1 until the worker installs its own handler, so an early cancel can't kill it
     trap '' USR1
 
+    # misaki shells out to `uv pip` for its language model and needs to know the venv
+    export VIRTUAL_ENV=${TTS_PYTHON%/bin/*}
+
     # 7<> opens the FIFO read-write, so neither side blocks waiting for the other
     setsid bash -c '"$1" "$2" "$3" <&7 | pw-cat --playback --raw --target "$4" --format s16 --rate "$5" --channels 1 - >/dev/null 2>&1' _ \
         "$TTS_PYTHON" "$WORKER" "$work/worker.pid" "$SINK" "$RATE" 7<>"$work/in" &
