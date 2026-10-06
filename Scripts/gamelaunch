@@ -31,6 +31,7 @@ USE_IMMEDIATE_FLIPS=1
 USE_RT=1
 PIN_IRQS=0
 USE_AUDIO=1 # new: --audio/--no-audio option (low-latency pipewire)
+FLATPAK_APP_ID="" # set by presets whose target is a flatpak app id, not a binary
 
 GAME_ARGS=()
 
@@ -53,11 +54,7 @@ while [[ $# -gt 0 ]]; do
           USE_CROSSHAIR=1
           PIN_IRQS=1
           USE_NTSYNC=1
-          # DXVK async shader compilation: OW2's DX11->Vulkan translation can
-          # stall-spike on first-seen shaders; async compiles them off the
-          # render thread instead, trading rare brief visual pop-in for no
-          # frametime spike.
-          export DXVK_ASYNC=1
+          export DXVK_CONFIG="dxvk.trackPipelineLifetime = True;"
           ;;
         kovaaks)
           USE_SCOPE=1
@@ -71,10 +68,20 @@ while [[ $# -gt 0 ]]; do
           USE_CROSSHAIR=1
           ;;
         sober)
-          export WAYLAND_DISPLAY=""
-          # USE_SCOPE=1
-          # HUD_MODE="default"
-          # USE_CROSSHAIR=1
+          # Sober is a flatpak (org.vinegarhq.Sober); its exported bin shim
+          # can't take --env/--filesystem flags, so route through a real
+          # `flatpak run` below instead of execing the shim directly.
+          FLATPAK_APP_ID="org.vinegarhq.Sober"
+          HUD_MODE="default"
+          # USE_CROSSHAIR intentionally left off by default: krosshair (its
+          # own Vulkan API 1.3 layer) crashes Sober's Vulkan 1.4 instance on
+          # activation -- confirmed via VK_LOADER_DEBUG, the process exits
+          # cleanly right after vkCreateInstance, before any frame renders.
+          # The plumbing below is wired and ready for whenever that's fixed
+          # upstream in krosshair; pass --crosshair yourself to retry it.
+          # Re-force Roblox's internal FramerateCap (it resets itself on
+          # exit) so fps stays uncapped regardless of launch entrypoint.
+          "$HOME/Scripts/sober-fps-patch" 2>/dev/null || true
           ;;
         how2fish)
           HUD_MODE="default"
@@ -279,6 +286,39 @@ if [[ "$USE_CROSSHAIR" -eq 1 ]]; then
   export KROSSHAIR=1
 fi
 
+# Flatpak apps (e.g. sober) don't inherit the host's exported env vars, and
+# their exported bin shims (org.foo.Bar on PATH) can't take extra flatpak
+# flags -- build a real `flatpak run` invocation instead, forwarding only
+# the toggles this script already controls:
+#   - KROSSHAIR: --filesystem can't expose /usr/lib/krosshair (flatpak
+#     reserves all of /usr for the runtime -- "Not sharing ... Path /usr is
+#     reserved by Flatpak"), so self-heal a COPY of the .so and a rewritten
+#     manifest into the app's own (real, host-writable) XDG_CONFIG_HOME at
+#     ~/.var/app/<id>/config/vulkan/ instead -- no filesystem grant needed.
+#     VK_ADD_LAYER_PATH is additive, so this doesn't clobber other layers.
+#   - MANGOHUD: relies on the org.freedesktop.Platform.VulkanLayer.MangoHud
+#     flatpak extension being installed; no filesystem grant needed. Only
+#     inject it in plain mode -- in scope mode gamescope's own --mangoapp
+#     already renders the HUD at the compositor level, and stacking both
+#     would double up the overlay.
+if [[ -n "$FLATPAK_APP_ID" ]]; then
+  FP_CMD=(flatpak run --branch=stable --arch=x86_64)
+  if [[ "$USE_CROSSHAIR" -eq 1 ]]; then
+    KROSSHAIR_VK_DIR="$HOME/.var/app/$FLATPAK_APP_ID/config/vulkan"
+    mkdir -p "$KROSSHAIR_VK_DIR/implicit_layer.d" 2>/dev/null \
+      && cp -f /usr/lib/krosshair/krosshair.so "$KROSSHAIR_VK_DIR/krosshair.so" 2>/dev/null \
+      && sed "s#\"library_path\": \"[^\"]*\"#\"library_path\": \"$KROSSHAIR_VK_DIR/krosshair.so\"#" \
+          /usr/share/vulkan/implicit_layer.d/krosshair.json > "$KROSSHAIR_VK_DIR/implicit_layer.d/krosshair.json" 2>/dev/null \
+      || true
+    FP_CMD+=(--env=VK_ADD_LAYER_PATH="$KROSSHAIR_VK_DIR/implicit_layer.d" --env=KROSSHAIR=1)
+  fi
+  if [[ "$HUD_MODE" != "no_display" && "$USE_SCOPE" -eq 0 ]]; then
+    FP_CMD+=(--env=MANGOHUD=1)
+  fi
+  FP_CMD+=("$FLATPAK_APP_ID")
+  GAME_ARGS=("${FP_CMD[@]}")
+fi
+
 # Low-latency PipeWire audio: request the min quantum already allowed by
 # ~/.config/pipewire/pipewire.conf.d/99-low-latency.conf (16/48000 = ~0.33ms)
 # for this client, and tell any pulseaudio-compat clients (wine/proton) to
@@ -317,7 +357,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "PIPEWIRE_LATENCY=16/48000"
     echo "PULSE_LATENCY_MSEC=1"
   fi
-  
+
   if [[ "$USE_SCOPE" -eq 1 ]]; then
     [[ "$PIN_IRQS" -eq 1 ]] && printf 'sudo pin_irqs && '
     [[ "$USE_GAMEMODE" -eq 1 ]] && printf 'gamemoderun '
@@ -421,4 +461,3 @@ set +m
 trap 'kill -TERM "$GAMESCOPE_PID" 2>/dev/null || true' TERM INT
 
 wait $GAMESCOPE_PID
-
