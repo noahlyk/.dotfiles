@@ -16,5 +16,8 @@
     "spellCheckLanguages": [
         "en-US",
         "en"
-    ]
+    ],
+    "audio": {
+        "ignoreVirtual": true
+    }
 }

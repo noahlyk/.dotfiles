@@ -28,17 +28,20 @@
         KC_S: MT(KC_S, KC_LALT),
         KC_D: MT(KC_D, KC_LCTL),
         KC_F: MT(KC_F, KC_LSFT),
-        
+
         KC_J: MT(KC_J, KC_RSFT),
         KC_K: MT(KC_K, KC_RCTL),
         KC_L: MT(KC_L, KC_RALT),
         KC_SCLN: MT(KC_SCLN, KC_RGUI),
         
+        
         KC_LALT: TO("nav"),
         KC_RSFT: TO("soundboard"),
+        KC_RCTL: TG("steno"),
 
         KC_CAPS: KC_ESC,
         KC_ESC: KC_GRV,
+        KC_F9: TG("nohrm"),
     },
     layers: {
         "nav": (
@@ -109,6 +112,46 @@
                 KC_9: CMD("/home/fib/Soundboard/play.sh KC_9"),
                 KC_0: CMD("/home/fib/Soundboard/play.sh KC_0"),
             },
+        ),
+        // No homerow mods: the homerow keys type their letters. F9 turns the hrm layer on.
+        "nohrm": (
+            remaps: {
+                KC_A: KC_A,
+                KC_S: KC_S,
+                KC_D: KC_D,
+                KC_F: KC_F,
+
+                KC_J: KC_J,
+                KC_K: KC_K,
+                KC_L: KC_L,
+                KC_SCLN: KC_SCLN,
+
+                KC_F9: TG("hrm"),
+            },
+        ),
+        // Homerow mods back on. F9 turns this layer off again, back to nohrm.
+        "hrm": (
+            remaps: {
+                KC_A: MT(KC_A, KC_LGUI),
+                KC_S: MT(KC_S, KC_LALT),
+                KC_D: MT(KC_D, KC_LCTL),
+                KC_F: MT(KC_F, KC_LSFT),
+
+                KC_J: MT(KC_J, KC_RSFT),
+                KC_K: MT(KC_K, KC_RCTL),
+                KC_L: MT(KC_L, KC_RALT),
+                KC_SCLN: MT(KC_SCLN, KC_RGUI),
+
+                KC_F9: TG("hrm"),
+            },
+        ),
+        "steno": (
+            kind: Steno((
+            )),
+            remaps: {
+                KC_CAPS: TG("steno"),
+            },
+            disabled_in_game_mode: true,
         ),
     },
     game_mode: (

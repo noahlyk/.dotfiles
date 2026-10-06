@@ -322,6 +322,9 @@ binds {
     Mod+Return hotkey-overlay-title="Master Column Toggle" {
         spawn-sh "$HOME/.config/niri/scripts/niri-column-toggle.sh"
     }
+    Mod+Grave hotkey-overlay-title="Master Column Toggle" {
+        spawn-sh "$HOME/.config/niri/scripts/niri-column-toggle.sh"
+    }
 
     Mod+Shift+1 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-1"; }
     Mod+Shift+2 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon2-1"; }
