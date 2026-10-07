@@ -30,4 +30,5 @@ systemd-resolved.service
 systemd-resolved-varlink.socket
 systemd-timesyncd.service
 systemd-userdbd.socket
+waydroid-container.service
 wol.service

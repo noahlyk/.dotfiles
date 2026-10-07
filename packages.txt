@@ -39,7 +39,6 @@ dfu-util
 dgop
 dmidecode
 dms-shell
-dms-shell-niri
 docker
 docker-compose
 dolphin
@@ -113,6 +112,7 @@ lua51
 luarocks
 man-db
 mangohud
+mangowm
 matugen
 mingw-w64-gcc
 mold
@@ -160,6 +160,7 @@ playerctl
 postgresql
 power-profiles-daemon
 pulsemixer
+python-pyclip
 qbittorrent-nox
 qpwgraph
 qt6-base
@@ -167,6 +168,9 @@ qt6-declarative
 qt6-shadertools
 qt6-svg
 reflector
+rhvoice
+rhvoice-language-english
+rhvoice-voice-slt
 ripgrep
 rsync
 rust-script
@@ -185,6 +189,7 @@ sudo
 sunshine
 system-config-printer
 systemd-resolvconf
+termdown
 tesseract
 tesseract-data-eng
 tmux
@@ -265,6 +270,7 @@ vulkan-tools
 vulkan-utility-libraries
 vulkan-validation-layers
 wakeonlan
+waydroid
 wayland-protocols
 wine-staging
 wireguard-tools
@@ -274,7 +280,6 @@ wtype
 xclip
 xdg-desktop-portal-gnome
 xdg-desktop-portal-gtk
-xwayland-satellite
 yazi
 zathura
 zathura-pdf-mupdf
