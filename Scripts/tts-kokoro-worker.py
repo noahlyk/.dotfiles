@@ -15,16 +15,24 @@ signal.signal(signal.SIGUSR1, lambda *_: cancel.set())
 PID_FILE = sys.argv[1]
 VOICE = os.environ.get("TTS_VOICE", "af_heart")
 SPEED = float(os.environ.get("TTS_SPEED", "1.0"))
-DEVICE = os.environ.get("TTS_DEVICE", "cuda")
-RATE = 24000  # Kokoro output rate
 
 with open(PID_FILE, "w") as f:
     f.write(str(os.getpid()))
 
+# Only ever use the cached Kokoro model: no Hub lookups or downloads at runtime
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import numpy as np
+import torch
 from kokoro import KPipeline
 
+DEVICE = os.environ.get("TTS_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 pipe = KPipeline(lang_code="a", device=DEVICE)
+
+# Warm up CUDA kernels and the model so the first real save isn't slow. Output is discarded.
+for _ in pipe("Ready.", voice=VOICE, speed=SPEED):
+    pass
+
 out = sys.stdout.buffer
 
 while True:
@@ -39,6 +47,7 @@ while True:
         continue
     if not text.strip():
         continue
+    # Kokoro yields per sentence, so audio starts playing before the whole file is synthesized
     for _, _, audio in pipe(text, voice=VOICE, speed=SPEED):
         if cancel.is_set():
             break
