@@ -41,8 +41,9 @@ speak() {
     flock 9
 
     grep -q '[^[:space:]]' "$src" || return 0
-    work=$(<"$CURRENT" 2>/dev/null) || { log "engine not running"; return 1; }
-    pid=$(<"$work/worker.pid" 2>/dev/null) || { log "engine not running"; return 1; }
+    # cat, not $(<file 2>/dev/null): bash 5.3 returns "" for that form
+    work=$(cat "$CURRENT" 2>/dev/null) || { log "engine not running"; return 1; }
+    pid=$(cat "$work/worker.pid" 2>/dev/null) || { log "engine not running"; return 1; }
     kill -USR1 "$pid" 2>/dev/null || { log "engine not running"; return 1; }
     printf '%s\n' "$src" > "$work/in"
 }
@@ -51,7 +52,7 @@ cleanup() {
     trap - EXIT INT TERM HUP
     if [[ -f $WORK/pgid ]]; then
         local pgid
-        pgid=$(<"$WORK/pgid")
+        pgid=$(cat "$WORK/pgid")
         if kill -TERM -- "-$pgid" 2>/dev/null; then
             for _ in 1 2 3 4 5 6 7 8 9 10; do
                 kill -0 -- "-$pgid" 2>/dev/null || break
@@ -60,7 +61,7 @@ cleanup() {
             kill -KILL -- "-$pgid" 2>/dev/null
         fi
     fi
-    [[ $(<"$CURRENT" 2>/dev/null) == "$WORK" ]] && rm -f -- "$CURRENT"
+    [[ $(cat "$CURRENT" 2>/dev/null) == "$WORK" ]] && rm -f -- "$CURRENT"
     rm -rf -- "$WORK"
 }
 
