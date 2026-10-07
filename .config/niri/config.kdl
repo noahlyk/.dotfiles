@@ -162,11 +162,11 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     Shift+F12 {
-        spawn-sh "$HOME/.config/niri/scripts/obs_ws.py replay"
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/obs_ws.py replay"
     }
 
     // MouseRight {
-    //     spawn-sh "$HOME/.config/niri/scripts/obs_ws.py toggle-recording-with-music"
+    //     spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/obs_ws.py toggle-recording-with-music"
     // }
 
     // wayscriber one-shot: no standby daemon. Home click-picks a monitor
@@ -176,7 +176,7 @@ binds {
     // Once open, wayscriber grabs the keyboard itself, so undo/clear/color/
     // etc. all work via its own shortcuts (Ctrl+Z, E, Escape) with no extra
     // binds needed here. See ~/.config/niri/scripts/wayscriber-toggle.sh.
-    Home { spawn-sh "$HOME/.config/niri/scripts/wayscriber-toggle.sh"; }
+    Home { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/wayscriber-toggle.sh"; }
 
 
     Mod+T hotkey-overlay-title="Open Terminal" {
@@ -201,7 +201,7 @@ binds {
         spawn "dms" "ipc" "call" "dankdash" "wallpaper";
     }
     Mod+D hotkey-overlay-title="Download Clipboard URL" {
-        spawn-sh "$HOME/.config/niri/scripts/download.sh --temp --notify";
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/download.sh --temp --notify";
     }
     Mod+N hotkey-overlay-title="Notification Center" {
         spawn "dms" "ipc" "call" "notifications" "toggle";
@@ -210,7 +210,7 @@ binds {
         spawn "dolphin";
     }
     Mod+Shift+N hotkey-overlay-title="Notepad" {
-        spawn-sh "$HOME/.config/niri/scripts/focus-or-spawn-notes"
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/focus-or-spawn-notes"
     }
     Mod+Alt+L hotkey-overlay-title="Lock Screen" {
         spawn "dms" "ipc" "call" "lock" "lock";
@@ -281,22 +281,22 @@ binds {
     Mod+Shift+Ctrl+K     { move-column-to-monitor-up; }
     Mod+Shift+Ctrl+L     { move-column-to-monitor-right; }
 
-    Mod+Page_Down      { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh next focus"; }
-    Mod+Page_Up        { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh prev focus"; }
-    Mod+U              { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh next focus"; }
-    Mod+I              { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh prev focus"; }
-    Mod+Shift+Ctrl+U   { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
-    Mod+Shift+Ctrl+I   { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
+    Mod+Page_Down      { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh next focus"; }
+    Mod+Page_Up        { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh prev focus"; }
+    Mod+U              { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh next focus"; }
+    Mod+I              { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh prev focus"; }
+    Mod+Shift+Ctrl+U   { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
+    Mod+Shift+Ctrl+I   { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
 
-    Mod+Shift+Page_Down { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
-    Mod+Shift+Page_Up   { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
-    Mod+Shift+U         { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
-    Mod+Shift+I         { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
+    Mod+Shift+Page_Down { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
+    Mod+Shift+Page_Up   { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
+    Mod+Shift+U         { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
+    Mod+Shift+I         { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
 
-    Mod+WheelScrollDown      cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh next focus"; }
-    Mod+WheelScrollUp        cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh prev focus"; }
-    Mod+Ctrl+WheelScrollDown cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
-    Mod+Ctrl+WheelScrollUp   cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
+    Mod+WheelScrollDown      cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh next focus"; }
+    Mod+WheelScrollUp        cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh prev focus"; }
+    Mod+Ctrl+WheelScrollDown cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh next move"; }
+    Mod+Ctrl+WheelScrollUp   cooldown-ms=150 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-cycle.sh prev move"; }
 
     Mod+WheelScrollRight      { focus-column-right-or-first; }
     Mod+WheelScrollLeft       { focus-column-left-or-last; }
@@ -308,45 +308,45 @@ binds {
     Mod+Ctrl+Shift+WheelScrollDown { move-column-right; }
     Mod+Ctrl+Shift+WheelScrollUp   { move-column-left; }
 
-    Mod+1 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-1 smart"; }
-    Mod+2 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon2-1 smart"; }
-    Mod+3 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon3-1 smart"; }
-    Mod+4 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-2"; }
-    Mod+5 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-3"; }
-    Mod+6 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-4"; }
-    Mod+7 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-5"; }
-    Mod+8 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-6"; }
-    Mod+9 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-7"; }
-    Mod+0 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh focus mon3-2"; }
+    Mod+1 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-1 smart"; }
+    Mod+2 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon2-1 smart"; }
+    Mod+3 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon3-1 smart"; }
+    Mod+4 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-2"; }
+    Mod+5 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-3"; }
+    Mod+6 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-4"; }
+    Mod+7 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-5"; }
+    Mod+8 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-6"; }
+    Mod+9 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-7"; }
+    Mod+0 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon3-2"; }
 
     Mod+Return hotkey-overlay-title="Master Column Toggle" {
-        spawn-sh "$HOME/.config/niri/scripts/niri-column-toggle.sh"
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-toggle.sh"
     }
     Mod+Grave hotkey-overlay-title="Master Column Toggle" {
         spawn-sh "$HOME/.config/niri/scripts/niri-column-toggle.sh"
     }
 
-    Mod+Shift+1 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-1"; }
-    Mod+Shift+2 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon2-1"; }
-    Mod+Shift+3 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon3-1"; }
-    Mod+Shift+4 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-2"; }
-    Mod+Shift+5 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-3"; }
-    Mod+Shift+6 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-4"; }
-    Mod+Shift+7 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-5"; }
-    Mod+Shift+8 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-6"; }
-    Mod+Shift+9 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-7"; }
-    Mod+Shift+0 { spawn-sh "$HOME/.config/niri/scripts/niri-workspace-go.sh move mon3-2"; }
+    Mod+Shift+1 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-1"; }
+    Mod+Shift+2 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon2-1"; }
+    Mod+Shift+3 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon3-1"; }
+    Mod+Shift+4 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-2"; }
+    Mod+Shift+5 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-3"; }
+    Mod+Shift+6 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-4"; }
+    Mod+Shift+7 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-5"; }
+    Mod+Shift+8 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-6"; }
+    Mod+Shift+9 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon1-7"; }
+    Mod+Shift+0 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh move mon3-2"; }
 
-    Mod+Ctrl+1 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 1"; }
-    Mod+Ctrl+2 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 2"; }
-    Mod+Ctrl+3 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 3"; }
-    Mod+Ctrl+4 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 4"; }
-    Mod+Ctrl+5 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 5"; }
-    Mod+Ctrl+6 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 6"; }
-    Mod+Ctrl+7 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 7"; }
-    Mod+Ctrl+8 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 8"; }
-    Mod+Ctrl+9 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 9"; }
-    Mod+Ctrl+0 { spawn-sh "$HOME/.config/niri/scripts/niri-column-move.sh 10"; }
+    Mod+Ctrl+1 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 1"; }
+    Mod+Ctrl+2 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 2"; }
+    Mod+Ctrl+3 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 3"; }
+    Mod+Ctrl+4 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 4"; }
+    Mod+Ctrl+5 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 5"; }
+    Mod+Ctrl+6 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 6"; }
+    Mod+Ctrl+7 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 7"; }
+    Mod+Ctrl+8 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 8"; }
+    Mod+Ctrl+9 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 9"; }
+    Mod+Ctrl+0 { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-move.sh 10"; }
 
     Mod+Ctrl+Shift+1 { move-column-to-index 1; }
     Mod+Ctrl+Shift+2 { move-column-to-index 2; }
@@ -379,16 +379,16 @@ binds {
     Ctrl+XF86Launch1 { screenshot-screen; }
     Alt+XF86Launch1 { screenshot-window; }
     Print {
-        spawn-sh "tmp=$(mktemp /tmp/screenshot.XXXXXX.png); niri msg action screenshot -p false --path \"$tmp\"; while [ ! -s \"$tmp\" ]; do sleep 0.05; done; satty --filename \"$tmp\"; rm -- \"$tmp\""
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh sh -c 'tmp=$(mktemp /tmp/screenshot.XXXXXX.png); niri msg action screenshot -p false --path \"$tmp\"; while [ ! -s \"$tmp\" ]; do sleep 0.05; done; satty --filename \"$tmp\"; rm -- \"$tmp\"'"
     }
     Ctrl+Print {
-        spawn-sh "tmp=$(mktemp /tmp/screenshot.XXXXXX.png); niri msg action screenshot-screen -p false --path \"$tmp\"; while [ ! -s \"$tmp\" ]; do sleep 0.05; done; satty --filename \"$tmp\"; rm -- \"$tmp\""
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh sh -c 'tmp=$(mktemp /tmp/screenshot.XXXXXX.png); niri msg action screenshot-screen -p false --path \"$tmp\"; while [ ! -s \"$tmp\" ]; do sleep 0.05; done; satty --filename \"$tmp\"; rm -- \"$tmp\"'"
     }
     Alt+Print {
-        spawn-sh "tmp=$(mktemp /tmp/screenshot.XXXXXX.png); niri msg action screenshot-window --path \"$tmp\"; while [ ! -s \"$tmp\" ]; do sleep 0.05; done; satty --filename \"$tmp\"; rm -- \"$tmp\""
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh sh -c 'tmp=$(mktemp /tmp/screenshot.XXXXXX.png); niri msg action screenshot-window --path \"$tmp\"; while [ ! -s \"$tmp\" ]; do sleep 0.05; done; satty --filename \"$tmp\"; rm -- \"$tmp\"'"
     }
     Shift+Print {
-        spawn-sh "$HOME/.config/niri/scripts/niri-ocr.sh"
+        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-ocr.sh"
     }
 
 
