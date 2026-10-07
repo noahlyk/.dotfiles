@@ -19,6 +19,9 @@ SPEED = float(os.environ.get("TTS_SPEED", "1.0"))
 with open(PID_FILE, "w") as f:
     f.write(str(os.getpid()))
 
+# Only ever use the cached Kokoro model: no Hub lookups or downloads at runtime
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import numpy as np
 import torch
 from kokoro import KPipeline
