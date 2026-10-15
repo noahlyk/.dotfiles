@@ -76,8 +76,8 @@ while [[ $# -gt 0 ]]; do
           FLATPAK_APP_ID="org.vinegarhq.Sober"
           # Sober's native Wayland path receives text-box focus but never gets
           # key events on niri (can't type in chat). Run it inside gamescope
-          # and force Sober onto gamescope's own XWayland (--nosocket=wayland
-          # below), which gives it a properly focused X11 window. Do NOT blank
+          # and force Sober onto gamescope's own XWayland (WAYLAND_DISPLAY is
+          # hidden from flatpak run below), which gives it a properly focused X11 window. Do NOT blank
           # WAYLAND_DISPLAY: gamescope itself needs the host socket. Keep the
           # cursor grab (shift-lock / first person) but don't hide the cursor,
           # Roblox menus need it. --no-scope / --wayland undo the rest.
@@ -320,10 +320,12 @@ fi
 #     would double up the overlay.
 if [[ -n "$FLATPAK_APP_ID" ]]; then
   FP_CMD=(flatpak run --branch=stable --arch=x86_64)
-  # Without the wayland socket the app falls back to X11 (sockets=fallback-x11),
-  # served by xwayland-satellite. Make sure it is up so DISPLAY is usable.
+  # Sober insists on keeping both the wayland and fallback-x11 sockets granted
+  # ("Permission Update Required" if either is removed), so don't use
+  # --nosocket=wayland. Instead hide WAYLAND_DISPLAY from flatpak run: it only
+  # binds the wayland socket when that var is set, so the app falls back to X11.
   if [[ "$FLATPAK_X11" -eq 1 ]]; then
-    FP_CMD+=(--nosocket=wayland)
+    FP_CMD=(env -u WAYLAND_DISPLAY "${FP_CMD[@]}")
   fi
   if [[ "$USE_CROSSHAIR" -eq 1 ]]; then
     KROSSHAIR_VK_DIR="$HOME/.var/app/$FLATPAK_APP_ID/config/vulkan"
