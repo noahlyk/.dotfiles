@@ -7,6 +7,7 @@ USE_VRR=1
 USE_EXPOSE_WL=0
 FULLSCREEN=1
 FORCE_GRAB=1
+HIDE_CURSOR=1 # gamescope --cursor=disabled alongside the grab
 USE_GAMEMODE=1
 HUD_MODE="no_display"
 FPS_CAP=""
@@ -32,6 +33,7 @@ USE_RT=1
 PIN_IRQS=0
 USE_AUDIO=1 # new: --audio/--no-audio option (low-latency pipewire)
 FLATPAK_APP_ID="" # set by presets whose target is a flatpak app id, not a binary
+FLATPAK_X11=0 # new: --x11/--wayland option (flatpak apps: drop wayland socket, run via XWayland)
 
 GAME_ARGS=()
 
@@ -72,6 +74,16 @@ while [[ $# -gt 0 ]]; do
           # can't take --env/--filesystem flags, so route through a real
           # `flatpak run` below instead of execing the shim directly.
           FLATPAK_APP_ID="org.vinegarhq.Sober"
+          # Sober's native Wayland path receives text-box focus but never gets
+          # key events on niri (can't type in chat). Run it inside gamescope
+          # and force Sober onto gamescope's own XWayland (--nosocket=wayland
+          # below), which gives it a properly focused X11 window. Do NOT blank
+          # WAYLAND_DISPLAY: gamescope itself needs the host socket. Keep the
+          # cursor grab (shift-lock / first person) but don't hide the cursor,
+          # Roblox menus need it. --no-scope / --wayland undo the rest.
+          USE_SCOPE=1
+          HIDE_CURSOR=0
+          FLATPAK_X11=1
           HUD_MODE="default"
           # USE_CROSSHAIR intentionally left off by default: krosshair (its
           # own Vulkan API 1.3 layer) crashes Sober's Vulkan 1.4 instance on
@@ -141,6 +153,8 @@ while [[ $# -gt 0 ]]; do
     --no-expose-wayland) USE_EXPOSE_WL=0 ;;
     --windowed) FULLSCREEN=0 ;;
     --no-grab) FORCE_GRAB=0 ;;
+    --hide-cursor) HIDE_CURSOR=1 ;;
+    --show-cursor) HIDE_CURSOR=0 ;;
     --fps=*) FPS_CAP="${1#--fps=}" ;;
     --refresh-rate=*) REFRESH_RATE="${1#--refresh-rate=}" ;;
     --gamemode) USE_GAMEMODE=1 ;;
@@ -166,6 +180,8 @@ while [[ $# -gt 0 ]]; do
     --scope) USE_SCOPE=1 ;;
     --no-scope) USE_SCOPE=0 ;;
     --pin-irqs) PIN_IRQS=1 ;;
+    --x11) FLATPAK_X11=1 ;;
+    --wayland) FLATPAK_X11=0 ;;
     --audio) USE_AUDIO=1 ;;
     --no-audio) USE_AUDIO=0 ;;
     --)
@@ -185,7 +201,7 @@ done
 # Append preconfig game args after the game command
 GAME_ARGS+=("${PRECONFIG_ARGS[@]}")
 
-if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
+if [[ ${#GAME_ARGS[@]} -eq 0 && -z "$FLATPAK_APP_ID" ]]; then
   echo "Usage: $0 [--preconfig <game>] [--scope] [opts] -- <cmd>" >&2
   echo "  --preconfig <game>   Use canned preset (cs2)" >&2
   echo "  --scope              Use gamescope" >&2
@@ -204,6 +220,7 @@ if [[ ${#GAME_ARGS[@]} -eq 0 ]]; then
   echo "  --vrr                Enable VRR/adaptive-sync" >&2
   echo "  --gamemode           Use gamemode" >&2
   echo "  --pin-irqs           Pin IRQs + game to dedicated CPU cores" >&2
+  echo "  --x11 / --wayland    Flatpak presets: force XWayland (sober default) or native Wayland" >&2
   echo "  --no-audio           Disable low-latency PipeWire tuning (on by default)" >&2
   exit 1
 fi
@@ -303,6 +320,11 @@ fi
 #     would double up the overlay.
 if [[ -n "$FLATPAK_APP_ID" ]]; then
   FP_CMD=(flatpak run --branch=stable --arch=x86_64)
+  # Without the wayland socket the app falls back to X11 (sockets=fallback-x11),
+  # served by xwayland-satellite. Make sure it is up so DISPLAY is usable.
+  if [[ "$FLATPAK_X11" -eq 1 ]]; then
+    FP_CMD+=(--nosocket=wayland)
+  fi
   if [[ "$USE_CROSSHAIR" -eq 1 ]]; then
     KROSSHAIR_VK_DIR="$HOME/.var/app/$FLATPAK_APP_ID/config/vulkan"
     mkdir -p "$KROSSHAIR_VK_DIR/implicit_layer.d" 2>/dev/null \
@@ -370,7 +392,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     [[ $FULLSCREEN -eq 1 ]] && printf -- "-f "
     [[ $USE_VRR -eq 1 ]] && printf -- "--adaptive-sync "
     [[ $USE_EXPOSE_WL -eq 1 ]] && printf -- "--expose-wayland "
-    [[ $FORCE_GRAB -eq 1 ]] && printf -- "--force-grab-cursor --cursor=disabled "
+    [[ $FORCE_GRAB -eq 1 ]] && printf -- "--force-grab-cursor "
+    [[ $FORCE_GRAB -eq 1 && $HIDE_CURSOR -eq 1 ]] && printf -- "--cursor=disabled "
     [[ -n "$SCALE_MODE" ]] && printf -- "-S %s " "$SCALE_MODE"
     [[ -n "$SHARPNESS" ]] && printf -- "--sharpness %s " "$SHARPNESS"
     [[ -n "$FSR_SHARPNESS" ]] && printf -- "--fsr-sharpness %s " "$FSR_SHARPNESS"
@@ -434,7 +457,8 @@ fi
 [[ "$FULLSCREEN" -eq 1 ]] && CMD+=(-f)
 [[ "$USE_VRR" -eq 1 ]] && CMD+=(--adaptive-sync)
 [[ "$USE_EXPOSE_WL" -eq 1 ]] && CMD+=(--expose-wayland)
-[[ "$FORCE_GRAB" -eq 1 ]] && CMD+=(--force-grab-cursor --cursor=disabled)
+[[ "$FORCE_GRAB" -eq 1 ]] && CMD+=(--force-grab-cursor)
+[[ "$FORCE_GRAB" -eq 1 && "$HIDE_CURSOR" -eq 1 ]] && CMD+=(--cursor=disabled)
 [[ -n "$SCALE_MODE" ]] && CMD+=(-S "$SCALE_MODE")
 [[ -n "$SHARPNESS" ]] && CMD+=(--sharpness "$SHARPNESS")
 [[ -n "$FSR_SHARPNESS" ]] && CMD+=(--fsr-sharpness "$FSR_SHARPNESS")
