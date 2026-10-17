@@ -67,3 +67,19 @@ window-rule {
 cursor {
     hide-after-inactive-ms 3000
 }
+
+// Floating windows look "lifted": thinner border + big soft drop shadow
+// (tiled windows have a tight shadow that's invisible when unfocused).
+// Tune: shadow softness/offset for more or less lift, border width for weight.
+window-rule {
+    match is-floating=true
+    border { width 1; }
+    shadow {
+        on
+        softness 30
+        spread 4
+        offset x=0 y=8
+        color "#000000b0"
+        inactive-color "#00000060"
+    }
+}
