@@ -14,3 +14,58 @@ input {
         accel-speed 0.6
     }
 }
+
+// ---- App placement ---------------------------------------------------------
+// open-on-workspace only affects where a window first opens; it never moves
+// an already-open window.
+
+// kitty -> mon1-2 (the scratch Notes nvim window stays wherever it's summoned)
+window-rule {
+    match app-id="^kitty$"
+    exclude title="^Notes nvim$"
+    open-on-workspace "mon1-2"
+}
+
+window-rule {
+    match app-id="^vesktop$"
+    open-on-workspace "mon2-1"
+}
+
+window-rule {
+    match app-id="^steam$"
+    open-on-workspace "mon1-1"
+}
+
+// Steam popups (updates, friends, notifications) shouldn't steal focus;
+// only the main "Steam" window takes focus on open.
+window-rule {
+    match app-id="^steam$"
+    exclude title="^Steam$"
+    open-focused false
+}
+
+window-rule {
+    match app-id="^firefox$"
+    open-on-workspace "mon1-3"
+}
+
+window-rule {
+    match app-id="^com\\.obsproject\\.Studio$"
+    open-on-workspace "mon3-2"
+}
+
+window-rule {
+    match app-id="^org\\.keepassxc\\.KeePassXC$"
+    open-on-workspace "mon3-1"
+    default-column-width { proportion 0.5; }
+}
+
+// ---- Screencast privacy ----------------------------------------------------
+// Extends the KeePassXC/Secrets rule in dms/windowrules.kdl (generated, so
+// not edited there).
+window-rule {
+    match app-id="^org\\.gnome\\.seahorse\\.Application$"
+    match app-id="^Bitwarden$"
+    match app-id="^com\\.bitwarden\\.desktop$"
+    block-out-from "screencast"
+}
