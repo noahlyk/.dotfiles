@@ -36,14 +36,6 @@ window-rule {
     open-on-workspace "mon1-1"
 }
 
-// Steam popups (updates, friends, notifications) shouldn't steal focus;
-// only the main "Steam" window takes focus on open.
-window-rule {
-    match app-id="^steam$"
-    exclude title="^Steam$"
-    open-focused false
-}
-
 window-rule {
     match app-id="^firefox$"
     open-on-workspace "mon1-3"
