@@ -129,6 +129,11 @@ hotkey-overlay {
 }
 
 prefer-no-csd
+// One clipboard only: no middle-click primary selection.
+clipboard {
+    disable-primary
+}
+
 screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
 
 animations {
@@ -191,9 +196,6 @@ binds {
     Home hotkey-overlay-title="Wayscriber Draw Overlay" { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/wayscriber-toggle.sh"; }
 
 
-    Mod+T hotkey-overlay-title="Open Terminal" {
-        spawn "kitty" "sh" "-c" "tmux-leap goto ~" // || tmux new -A || tmux a || tmux"
-    }
     Mod+Shift+C hotkey-overlay-title="Open Odds Calculator" {
         spawn "kitty" "sh" "-c" "cd ~/code/fibsussy/odds && exec $HOME/.local/bin/uv run python launch.py"
     }
@@ -248,8 +250,15 @@ binds {
     Mod+Q repeat=false hotkey-overlay-title="Close Window" { close-window; }
     Mod+F hotkey-overlay-title="Fullscreen" { fullscreen-window; }
     Mod+Shift+F hotkey-overlay-title="Windowed Fullscreen" { toggle-windowed-fullscreen; }
-    Mod+Shift+T hotkey-overlay-title="Toggle Floating" { toggle-window-floating; }
-    Mod+Ctrl+Shift+T hotkey-overlay-title="Switch Floating/Tiling Focus" { switch-focus-between-floating-and-tiling; }
+    Mod+T hotkey-overlay-title="Toggle Floating" { toggle-window-floating; }
+    Mod+Shift+T hotkey-overlay-title="Switch Floating/Tiling Focus" { switch-focus-between-floating-and-tiling; }
+    Mod+Shift+Ctrl+T hotkey-overlay-title="Focus Urgent Window" { spawn-sh "$HOME/.config/niri/scripts/focus-urgent.sh"; }
+
+    // Discord/portal screenshare: share the "Dynamic Cast Target" entry once,
+    // then repoint it live with these without restarting the share.
+    Mod+F10 hotkey-overlay-title="Cast: Share Focused Window" { set-dynamic-cast-window; }
+    Mod+F11 hotkey-overlay-title="Cast: Share Focused Monitor" { set-dynamic-cast-monitor; }
+    Mod+F12 hotkey-overlay-title="Cast: Stop Sharing Target" { clear-dynamic-cast-target; }
     Mod+W hotkey-overlay-title="Toggle Tabbed Column" { toggle-column-tabbed-display; }
 
     Mod+Left hotkey-overlay-title="Focus Left" { focus-column-or-monitor-left; }
@@ -331,8 +340,8 @@ binds {
     Mod+9 hotkey-overlay-title="Go to Workspace mon1-7" { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon1-7"; }
     Mod+0 hotkey-overlay-title="Go to Workspace mon3-2" { spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-workspace-go.sh focus mon3-2"; }
 
-    Mod+Return hotkey-overlay-title="Master Column Toggle" {
-        spawn-sh "$HOME/.config/niri/scripts/priority-run.sh $HOME/.config/niri/scripts/niri-column-toggle.sh"
+    Mod+Return hotkey-overlay-title="Open Terminal" {
+        spawn "kitty" "sh" "-c" "tmux-leap goto ~" // || tmux new -A || tmux a || tmux"
     }
     Mod+Grave hotkey-overlay-title="Master Column Toggle" {
         spawn-sh "$HOME/.config/niri/scripts/niri-column-toggle.sh"

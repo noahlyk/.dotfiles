@@ -62,3 +62,8 @@ window-rule {
     match app-id="^com\\.bitwarden\\.desktop$"
     block-out-from "screencast"
 }
+
+// dms/cursor.kdl is regenerated, so cursor tweaks live here.
+cursor {
+    hide-after-inactive-ms 3000
+}
