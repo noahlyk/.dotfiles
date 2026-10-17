@@ -16,11 +16,10 @@ input {
 }
 
 // ---- App placement ---------------------------------------------------------
-// Only vesktop/steam are placed (they autostart in the background).
-// open-on-workspace to a workspace you are not on opens the window
-// UNFOCUSED, so interactive apps (firefox, keepassxc, kitty, obs) are not
-// placed. open-on-workspace only affects where a window first opens; it never moves
-// an already-open window.
+// open-on-workspace only affects where a window first opens; it never moves
+// an already-open window. It also leaves the window UNFOCUSED when that
+// workspace isn't the one you're on, so scripts/focus-on-open.sh (started
+// from config.kdl) focuses firefox/keepassxc/kitty/obs once they appear.
 
 window-rule {
     match app-id="^vesktop$"
@@ -33,7 +32,24 @@ window-rule {
 }
 
 window-rule {
+    match app-id="^kitty$"
+    exclude title="^Notes nvim$"
+    open-on-workspace "mon1-2"
+}
+
+window-rule {
+    match app-id="^firefox$"
+    open-on-workspace "mon1-3"
+}
+
+window-rule {
+    match app-id="^com\\.obsproject\\.Studio$"
+    open-on-workspace "mon3-2"
+}
+
+window-rule {
     match app-id="^org\\.keepassxc\\.KeePassXC$"
+    open-on-workspace "mon3-1"
     default-column-width { proportion 0.5; }
 }
 
