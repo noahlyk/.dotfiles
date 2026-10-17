@@ -110,10 +110,9 @@ overview {
 // dms already registers its own polkit authentication agent at session
 // start; a separate mate-polkit agent errors "already exists" and is a no-op.
 spawn-at-startup "bash" "-c" "wl-paste --watch cliphist store &"
-// Each lands on its workspace via open-on-workspace rules in custom-overrides.kdl
+// vesktop/steam land on their workspaces via custom-overrides.kdl
 spawn-at-startup "vesktop"
 spawn-at-startup "steam" "-silent"
-spawn-at-startup "firefox"
 environment {
   XDG_CURRENT_DESKTOP "niri"
   QT_QPA_PLATFORM "wayland"
