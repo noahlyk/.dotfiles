@@ -184,6 +184,7 @@ while [[ $# -gt 0 ]]; do
     --wayland) FLATPAK_X11=0 ;;
     --audio) USE_AUDIO=1 ;;
     --no-audio) USE_AUDIO=0 ;;
+    --no-proton-wayland) export PROTON_ENABLE_WAYLAND=0 ;; # try this if the game crashes / loses input
     --)
       shift
       GAME_ARGS+=("$@")
@@ -222,6 +223,7 @@ if [[ ${#GAME_ARGS[@]} -eq 0 && -z "$FLATPAK_APP_ID" ]]; then
   echo "  --pin-irqs           Pin IRQs + game to dedicated CPU cores" >&2
   echo "  --x11 / --wayland    Flatpak presets: force XWayland (sober default) or native Wayland" >&2
   echo "  --no-audio           Disable low-latency PipeWire tuning (on by default)" >&2
+  echo "  --no-proton-wayland  Run Proton via XWayland (try if the game crashes / loses input)" >&2
   exit 1
 fi
 
@@ -254,18 +256,19 @@ export IS_GAME=1
 export __GL_THREADED_OPTIMIZATION=1
 export __GL_YIELD=NOTHING
 export PROTON_WAIT_ATTACHED=0
-export PROTON_ENABLE_WAYLAND=1
+export PROTON_ENABLE_WAYLAND="${PROTON_ENABLE_WAYLAND:-1}"
 export PROTON_USE_EAC_LINUX=1
 export PROTON_CRASH_REPORT=0
 export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
 export PROTON_HEAP_DELAY_FREE=1
-export ENABLE_LAYER_MESA_ANTI_LAG=1
-export PROTON_FSR4_UPGRADE=1
 
 # Fix stuttering caused by Steam Game Recorder (Steam's LD_PRELOAD injection)
 # Use --steam to preserve Steam overlay (but may cause stutter)
 if [[ "$USE_STEAM" -eq 0 ]]; then
   export LD_PRELOAD=""
+  # The overlay is also a Vulkan layer (Steam sets ENABLE_...=1); LD_PRELOAD=""
+  # alone doesn't drop it, and it's one more per-frame layer under MangoHud.
+  export DISABLE_VK_LAYER_VALVE_steam_overlay_1=1
 fi
 
 # Proton performance options
@@ -359,14 +362,12 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "__GL_THREADED_OPTIMIZATION=1"
   echo "__GL_YIELD=NOTHING"
   echo "PROTON_WAIT_ATTACHED=0"
-  echo "PROTON_ENABLE_WAYLAND=1"
+  echo "PROTON_ENABLE_WAYLAND=$PROTON_ENABLE_WAYLAND"
   echo "PROTON_USE_EAC_LINUX=1"
   echo "PROTON_CRASH_REPORT=0"
   echo "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1"
   echo "PROTON_HEAP_DELAY_FREE=1"
-  echo "ENABLE_LAYER_MESA_ANTI_LAG=1"
-  echo "PROTON_FSR4_UPGRADE=1"
-  [[ "$USE_STEAM" -eq 0 ]] && echo "LD_PRELOAD="
+  [[ "$USE_STEAM" -eq 0 ]] && echo "LD_PRELOAD=" && echo "DISABLE_VK_LAYER_VALVE_steam_overlay_1=1"
   [[ "$USE_NTSYNC" -eq 1 ]] && echo "PROTON_USE_NTSYNC=1"
   [[ "$USE_DLSS" -eq 1 ]] && echo "PROTON_DLSS_UPGRADE=1"
   [[ "$USE_HDR" -eq 1 ]] && echo "PROTON_ENABLE_HDR=1"
@@ -417,16 +418,36 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 # Pin IRQs to CPU 0, game to CPUs 1-11
-# IRQ numbers can shift after reboots/driver updates, and this must never be
-# fatal to the launch (set -e is active) -- skip missing IRQs and never fail.
+# IRQ numbers change every boot/driver update, so look them up by device name
+# in /proc/interrupts (USB controller = mouse, nvidia, the default-route NIC)
+# instead of hardcoding. Managed IRQs (nvme) refuse affinity writes -- never
+# fatal to the launch (set -e is active), so every write is best-effort.
 pin_irqs() {
+  local nic pat irqs
+  nic="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
+  pat="xhci_hcd|nvidia${nic:+|$nic}"
+  irqs="$(awk -v pat="$pat" '$0 ~ pat {sub(":", "", $1); print $1}' /proc/interrupts)"
+  [[ -n "$irqs" ]] || return 0
   sudo bash -c '
-    for irq in 34 38 47; do
-      [ -e "/proc/irq/$irq/smp_affinity" ] && echo 1 > "/proc/irq/$irq/smp_affinity"
+    for irq in "$@"; do
+      [ -e "/proc/irq/$irq/smp_affinity" ] && echo 1 > "/proc/irq/$irq/smp_affinity" 2>/dev/null
     done
     true
-  ' || true
+  ' _ $irqs || true
 }
+
+# Warn (never block) when available RAM is low -- the usual cause of mid-match
+# stutter and OOM crashes on this 15 GB box. Lists the biggest other processes.
+check_memory() {
+  local avail_mb hogs
+  avail_mb=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
+  if [[ "$avail_mb" -lt "${MIN_FREE_MB:-6000}" ]]; then
+    hogs="$(ps -eo rss=,comm= --sort=-rss | head -4 | awk '{printf "%s %dMB, ", $2, $1/1024}')"
+    notify-send -u critical "gamelaunch: low RAM (${avail_mb} MB available)" "Close: ${hogs%, }" 2>/dev/null || true
+    echo "gamelaunch: low RAM (${avail_mb} MB available); biggest: ${hogs%, }" >&2
+  fi
+}
+check_memory
 
 # launch plain mode
 if [[ "$USE_SCOPE" -eq 0 ]]; then
