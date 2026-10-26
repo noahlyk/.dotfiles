@@ -22,7 +22,7 @@
     ),
     enabled_keyboards: [
         "0c45:8092:0110:0003", // Epomaker HE80
-        // "16c0:27db:0111:0003", // Glove80
+        "16c0:27db:0111:0003", // Glove80
     ],
     remaps: {
         KC_A: MT(KC_A, KC_LGUI),
@@ -130,6 +130,7 @@
             },
         ),
         "steno": (
+            priority: 99,
             kind: Steno((
                 lookup_stroke: Some("HRAOUP"), // (it reads "loo-UP")
             )),
