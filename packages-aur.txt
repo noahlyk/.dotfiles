@@ -7,7 +7,7 @@ claude-code
 clipboard-sync
 codename-goose-bin
 crosshair-maker
-dms-shell-niri
+dgop
 droidcam
 droidcam-obs-plugin
 dropbox-cli
@@ -28,6 +28,7 @@ nginx-mod-lua
 obs-wayland-hotkeys-git
 opencode-bin
 pipewire-crisp-vocals
+plover
 python-obsws
 qt6ct-kde
 quickshell-git
@@ -48,6 +49,7 @@ ttf-twemoji
 ttf-twemoji-color
 v4l2loopback-dc-dkms
 vencord-bin
+virtualbox-ext-oracle
 vkbasalt
 vkpost
 vlc-pause-click-plugin

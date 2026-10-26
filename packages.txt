@@ -36,7 +36,6 @@ cups-pk-helper
 ddcui
 ddcutil
 dfu-util
-dgop
 dmidecode
 dms-shell
 docker
