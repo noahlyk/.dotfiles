@@ -34,10 +34,9 @@
         KC_L: MT(KC_L, KC_RALT),
         KC_SCLN: MT(KC_SCLN, KC_RGUI),
         
-        
-        KC_LALT: TO("nav"),
-        KC_RSFT: TO("soundboard"),
-        KC_RCTL: TG("steno"),
+        KC_LALT: MO("nav"),
+        KC_RSFT: MO("soundboard"),
+        KC_BSLS: TO("steno"),
 
         KC_CAPS: KC_ESC,
         KC_ESC: KC_GRV,
@@ -126,14 +125,15 @@
                 KC_SCLN: KC_SCLN,
 
                 KC_F9: KC_F9,
-                KC_CAPS: TG("nohrm"),
+                KC_CAPS: TO("base"),
             },
         ),
         "steno": (
             kind: Steno((
+                lookup_stroke: Some("HRAOUP"), // (it reads "loo-UP")
             )),
             remaps: {
-                KC_CAPS: TG("steno"),
+                KC_CAPS: TO("base"),
             },
             disabled_in_game_mode: true,
         ),
@@ -148,4 +148,60 @@
             KC_LALT: KC_LALT,
         },
     ),
+    per_keyboard_overrides: {
+       "16c0:27db:0111:0003": (
+            default_layer: Some("steno"),
+            remaps: Some({
+                KC_ESC: KC_ESC,
+                KC_F1: TO("steno"),
+                KC_F8: TO("stenopractice"),
+                KC_F9: TO("nohrm"),
+                KC_F10: TO("base"),
+            }),
+            layers: Some({
+                "stenopractice": (
+                    remaps: {
+                        KC_A: KC_A,
+                        KC_S: KC_S,
+                        KC_D: KC_D,
+                        KC_F: KC_F,
+
+                        KC_J: KC_J,
+                        KC_K: KC_K,
+                        KC_L: KC_L,
+                        KC_SCLN: KC_SCLN,
+
+                        KC_SPC: KC_C,
+                        KC_ENT: KC_V,
+                        KC_DEL: KC_N,
+                        KC_BSPC: KC_M,
+
+                        KC_F8: KC_F8,
+                        KC_F9: KC_F9,
+                        KC_CAPS: TG("stenopractice"),
+                    },
+                ),
+                "steno": (
+                    kind: Steno((
+                        layout_overrides: {
+                            "A-": Key(KC_SPC),
+                            "O-": Key(KC_ENT),
+                            "-E": Key(KC_DEL),
+                            "-U": Key(KC_BSPC),
+                        },
+                        // Same lookup stroke as the global steno layer: this layer replaces it
+                        // on this keyboard, so it needs its own
+                        lookup_stroke: Some("HRAOUP"),
+                    )),
+                    remaps: {
+                        KC_F1: TO("steno"),
+                        KC_F8: TO("stenopractice"),
+                        KC_F9: TO("nohrm"),
+                        KC_F10: TO("base"),
+                    },
+                    disabled_in_game_mode: true,
+                ),
+            }),
+        ),
+    },
 )
