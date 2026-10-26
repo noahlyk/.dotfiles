@@ -102,9 +102,20 @@ setopt hist_find_no_dups       # Don't show duplicates when searching
 setopt hist_reduce_blanks      # Remove extra blanks
 setopt hist_verify             # Verify history expansion
 
-# Keep noise (and obvious secrets) out of history. Prefix any command with a
-# space to skip it ad-hoc (hist_ignore_space).
-HISTORY_IGNORE='(ls|ll|ld|lt|l|cd|cd ..|..|...|.3|.4|.5|pwd|clear|exit|c|v|history|fg|bg|z *|* --password *|*token=*|*TOKEN=*|export *KEY*|export *SECRET*|export *TOKEN*)'
+# Keep noise out of history. Prefix any command with a space to skip it
+# ad-hoc (hist_ignore_space). HISTORY_IGNORE is exact-match noise only; secrets
+# are caught by the zshaddhistory hook below, which covers in-memory history too.
+HISTORY_IGNORE='(ls|ll|ld|lt|l|cd|cd ..|..|...|.3|.4|.5|pwd|clear|exit|c|v|history|fg|bg|z *)'
+
+# Credential-looking commands never reach history. Case-insensitive, whole line.
+zshaddhistory() {
+    emulate -L zsh
+    setopt extendedglob
+    local cmd=${1%%$'\n'}
+    [[ $cmd == (#i)*(api_key|apikey|api-key|secret|passwd|password|token=|--token|_key=|authorization:)* ]] && return 1
+    [[ $cmd == ${~HISTORY_IGNORE} ]] && return 1
+    return 0
+}
 
 
 
@@ -219,15 +230,36 @@ ZSH_AUTOSUGGEST_HISTORY_IGNORE="$HISTORY_IGNORE"
 
 # fzf integration - load last to ensure binding is not overwritten
 if (( $+commands[fzf] )); then
+    # Drop every command listed in $1 (one per line) from $HISTFILE and memory
+    __fzf_history_purge() {
+        emulate -L zsh
+        [[ -s $1 && -f $HISTFILE ]] || return 0
+        local tmp=$(mktemp)
+        # Extended-history lines look like ": <ts>:<dur>;<cmd>"
+        awk 'NR==FNR { del[$0]; next }
+             { c = $0; sub(/^: [0-9]+:[0-9]+;/, "", c); if (!(c in del)) print }' "$1" "$HISTFILE" > $tmp &&
+            cat $tmp > $HISTFILE   # cat keeps the 600 perms
+        command rm -f $tmp
+        # Reload so the deleted entries are gone from this session too
+        local size=$HISTSIZE
+        HISTSIZE=0; HISTSIZE=$size
+        fc -R
+    }
+
     __fzf_history__() {
-        local selected
+        local selected list del
+        list=$(mktemp) del=$(mktemp)
         # fc -rl lists most-recent-first; strip the "<num>[*]" prefix, dedup keeping newest
-        selected=$(fc -rl 1 | sed -E 's/^[[:space:]]*[0-9]+\*?[[:space:]]*//' | awk '!seen[$0]++' |
-            fzf --no-sort --exact --query="$LBUFFER" \
+        fc -rl 1 | sed -E 's/^[[:space:]]*[0-9]+\*?[[:space:]]*//' | awk '!seen[$0]++' > $list
+        # ctrl-x: record the hovered entry for deletion and hide it from the list
+        selected=$(fzf --no-sort --exact --query="$LBUFFER" < $list \
                 --height=60% --layout=reverse --border=rounded --info=inline \
                 --prompt='  ' --pointer='▶' --color='pointer:cyan,prompt:cyan' \
                 --preview='echo {}' --preview-window='down:3:wrap:hidden' \
-                --bind='ctrl-/:toggle-preview,ctrl-y:accept')
+                --bind='ctrl-/:toggle-preview,ctrl-y:accept' \
+                --bind="ctrl-x:execute-silent(printf '%s\n' {} >> $del)+reload(grep -vxFf $del $list; true)")
+        __fzf_history_purge $del
+        command rm -f $list $del
         [[ -n $selected ]] && LBUFFER=$selected
         zle reset-prompt
     }

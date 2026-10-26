@@ -52,10 +52,14 @@ while [[ $# -gt 0 ]]; do
           PIN_IRQS=1
           ;;
         overwatch)
-          HUD_MODE="default"
+          # HUD_MODE="default"
           USE_CROSSHAIR=1
-          PIN_IRQS=1
+          # PIN_IRQS=1
           USE_NTSYNC=1
+          # PROTON_ENABLE_NVAPI=1
+          # export DXVK_ASYNC=1
+          # PROTON_ENABLE_WAYLAND=0
+          # VKD3D_FEATURE_LEVEL=12_2
           export DXVK_CONFIG="dxvk.trackPipelineLifetime = True;"
           ;;
         kovaaks)
@@ -70,29 +74,15 @@ while [[ $# -gt 0 ]]; do
           USE_CROSSHAIR=1
           ;;
         sober)
-          # Sober is a flatpak (org.vinegarhq.Sober); its exported bin shim
-          # can't take --env/--filesystem flags, so route through a real
-          # `flatpak run` below instead of execing the shim directly.
           FLATPAK_APP_ID="org.vinegarhq.Sober"
-          # Sober's native Wayland path receives text-box focus but never gets
-          # key events on niri (can't type in chat). Run it inside gamescope
-          # and force Sober onto gamescope's own XWayland (WAYLAND_DISPLAY is
-          # hidden from flatpak run below), which gives it a properly focused X11 window. Do NOT blank
-          # WAYLAND_DISPLAY: gamescope itself needs the host socket. Keep the
-          # cursor grab (shift-lock / first person) but don't hide the cursor,
-          # Roblox menus need it. --no-scope / --wayland undo the rest.
-          USE_SCOPE=1
-          HIDE_CURSOR=0
-          FLATPAK_X11=1
-          HUD_MODE="default"
-          # USE_CROSSHAIR intentionally left off by default: krosshair (its
-          # own Vulkan API 1.3 layer) crashes Sober's Vulkan 1.4 instance on
-          # activation -- confirmed via VK_LOADER_DEBUG, the process exits
-          # cleanly right after vkCreateInstance, before any frame renders.
-          # The plumbing below is wired and ready for whenever that's fixed
-          # upstream in krosshair; pass --crosshair yourself to retry it.
-          # Re-force Roblox's internal FramerateCap (it resets itself on
-          # exit) so fps stays uncapped regardless of launch entrypoint.
+          # Native Wayland, no gamescope: X11-in-gamescope-in-niri gave tearing
+          # and broken first-person mouse (pointer lock). Native Wayland uses
+          # real pointer constraints and presents straight to niri (vsynced).
+          # If chat typing fails here, fall back with:
+          #   --scope --x11 --no-immediate-flips --no-rt   (gamescope keeps the grab)
+          USE_SCOPE=0
+          FLATPAK_X11=0
+          HUD_MODE="default"   # MangoHud Vulkan layer (plain mode only)
           "$HOME/Scripts/sober-fps-patch" 2>/dev/null || true
           ;;
         how2fish)
@@ -251,14 +241,10 @@ if [[ -z "$REFRESH_RATE" ]]; then
 fi
 
 # environment
-export mesa_glthread=true
 export IS_GAME=1
 export __GL_THREADED_OPTIMIZATION=1
 export __GL_YIELD=NOTHING
-export PROTON_WAIT_ATTACHED=0
 export PROTON_ENABLE_WAYLAND="${PROTON_ENABLE_WAYLAND:-1}"
-export PROTON_USE_EAC_LINUX=1
-export PROTON_CRASH_REPORT=0
 export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
 export PROTON_HEAP_DELAY_FREE=1
 
@@ -357,14 +343,10 @@ fi
 
 # dry-run output
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "mesa_glthread=true"
   echo "IS_GAME=1"
   echo "__GL_THREADED_OPTIMIZATION=1"
   echo "__GL_YIELD=NOTHING"
-  echo "PROTON_WAIT_ATTACHED=0"
   echo "PROTON_ENABLE_WAYLAND=$PROTON_ENABLE_WAYLAND"
-  echo "PROTON_USE_EAC_LINUX=1"
-  echo "PROTON_CRASH_REPORT=0"
   echo "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1"
   echo "PROTON_HEAP_DELAY_FREE=1"
   [[ "$USE_STEAM" -eq 0 ]] && echo "LD_PRELOAD=" && echo "DISABLE_VK_LAYER_VALVE_steam_overlay_1=1"
