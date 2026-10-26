@@ -48,3 +48,6 @@ __pycache__/
 .config/plover/user.json
 .config/plover/plover.log
 .config/steno-lessions/progress.json
+
+# Plover Qt window geometry/toolbar state
+.config/Open Steno Project/
