@@ -49,7 +49,7 @@ window-rule {
 
 window-rule {
     match app-id="^org\\.keepassxc\\.KeePassXC$"
-    open-on-workspace "mon3-1"
+    // open-on-workspace "mon3-1"
     default-column-width { proportion 0.5; }
 }
 
@@ -82,4 +82,17 @@ window-rule {
         color "#000000b0"
         inactive-color "#00000060"
     }
+}
+
+// gamescope-launched games (everything via `gamelaunch`) map with NO app-id, so
+// they can't be matched by name. An empty `match` is true for every window and
+// `exclude app-id="."` only fires on windows that have an app-id, leaving
+// exactly the app-id-less ones. Same properties as the dms vrr rule.
+window-rule {
+    match
+    exclude app-id="."
+    open-fullscreen true
+    variable-refresh-rate true
+    geometry-corner-radius 0
+    open-on-workspace "mon1-1"
 }

@@ -138,7 +138,7 @@ screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
 
 animations {
   off
-  slowdown 0.5
+  slowdown 3.0
   workspace-switch {
     duration-ms 50
     curve "cubic-bezier" 0.16 1 0.3 1

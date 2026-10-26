@@ -32,10 +32,11 @@ window-rule {
 
 // @id=dms_rule_7 @name=vrr
 window-rule {
+    match app-id="^gamelaunch$"
     match app-id="gamescope"
-    match app-id="cs2"
     match app-id="^steam_app_"
     open-fullscreen true
+    open-on-workspace "mon1-1"
     variable-refresh-rate true
     geometry-corner-radius 0
 }

@@ -9,7 +9,7 @@ wid=$(niri msg --json windows | jq --arg title "$TITLE" -r \
 if [ -n "$wid" ]; then
   niri msg action focus-window --id "$wid"
 else
-  setsid kitty -o background="#000000" -o background_opacity="1" -o font_size=50 sh -c 'nvim -u ~/.config/nvim/notepad.vim /tmp/notes.md' &
+  setsid kitty -o background="#000000" -o background_opacity="1" -o font_size=36 sh -c 'nvim -u ~/.config/nvim/notepad.vim /tmp/notes.md' &
   pid=$!
 
   while :; do
