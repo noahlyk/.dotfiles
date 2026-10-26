@@ -12,7 +12,6 @@
 (
     preamp_db: 12.0,
     active_mode: "vocals",
-    // active_mode: "instrumental",
 
     // This machine's hardware wiring, read by crisp-links.
     hardware: (
@@ -85,21 +84,21 @@
                 (
                     type: "gate",
                     enabled: true,
-                    threshold_db: -50.0,
+                    threshold_db: -42.0,
                     ratio: 3.0,
-                    knee_db: 8.0,
-                    range_db: -20.0,
-                    hysteresis_db: 8.0,
-                    hold_ms: 350.0,
+                    knee_db: 4.0,
+                    range_db: -30.0,
+                    hysteresis_db: 4.0,
+                    hold_ms: 120.0,
                     attack_ms: 4.0,
-                    release_ms: 240.0,
-                    detector_ms: 10.0,
+                    release_ms: 120.0,
+                    detector_ms: 5.0,
                     detector: "expander",
                 ),
                 (
                     type: "eq",
                     enabled: true,
-                    preamp_db: 5.5,
+                    preamp_db: 3.2,
                     band: [
                         (type: "LS", freq: 60,   gain_db: -2.9, q: 0.71),
                         (type: "PK", freq: 130,  gain_db: 1.7,  q: 2.4),
@@ -116,8 +115,7 @@
                 (
                     type: "eq",
                     enabled: true,
-                    preamp_db: 3.0,
-                ),
+                    preamp_db: 0.0,),
             ],
         ),
     },

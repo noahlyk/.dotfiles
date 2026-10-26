@@ -10,6 +10,11 @@
       "path": "alarmClock",
       "commit": "c99ba77c848721fbb8b8c3307638ea10d5dccdd9"
     },
+    "dankActions": {
+      "repo": "https://github.com/AvengeMedia/dms-plugins",
+      "path": "DankActions",
+      "commit": "a8a508bc371e7c3f2c7862d8840b88cf5c63978f"
+    },
     "extendedNetworkToggle": {
       "repo": "https://github.com/notherealmarco/dms-plugin-extended-network",
       "commit": "f58b4b28391eaa6157e9b89faf9837f711315930"

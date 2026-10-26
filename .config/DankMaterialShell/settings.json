@@ -211,23 +211,20 @@
           "barMaxVisibleApps": 0,
           "barMaxVisibleRunningApps": 0,
           "barShowOverflowBadge": false
-        },
-        {
-          "id": "focusedWindow",
-          "enabled": true,
-          "focusedWindowSize": 0,
-          "focusedWindowCompactMode": true,
-          "focusedWindowShowIcon": false
         }
       ],
       "centerWidgets": [],
       "rightWidgets": [
         {
+          "id": "capsLockIndicator",
+          "enabled": true
+        },
+        {
           "id": "alarmClock",
           "enabled": true
         },
         {
-          "id": "capsLockIndicator",
+          "id": "dankActions:variant_1792273948340",
           "enabled": true
         },
         {
@@ -347,7 +344,8 @@
     "hslHue": -1,
     "hslSaturation": 0,
     "hslLightness": 1,
-    "valid": true
+    "valid": true,
+    "rgba": -1
   },
   "systemMonitorCustomColor": {
     "r": 1,
@@ -360,7 +358,8 @@
     "hslHue": -1,
     "hslSaturation": 0,
     "hslLightness": 1,
-    "valid": true
+    "valid": true,
+    "rgba": -1
   },
   "desktopWidgetInstances": [
     {

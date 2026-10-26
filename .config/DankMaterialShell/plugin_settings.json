@@ -13,17 +13,19 @@
     "enabled": true,
     "variants": [
       {
-        "icon": "IP",
+        "icon": "terminal",
         "displayText": "",
-        "displayCommand": "~/Scripts/ipaddr.sh | jq -r \".ipv4\"",
-        "clickCommand": "notify-send \"$(~/Scripts/ipaddr.sh | jq -r '.tooltip' | tr '\\r' '\\n')\"",
-        "middleClickCommand": "",
-        "rightClickCommand": "",
-        "updateInterval": 10,
-        "showIcon": false,
+        "displayCommand": "~/Scripts/mic-mode.sh",
+        "clickCommand": "~/Scripts/mic-mode.sh next",
+        "middleClickCommand": "~/Scripts/mic-mode.sh list",
+        "rightClickCommand": "~/Scripts/mic-mode.sh prev",
+        "updateInterval": 5,
+        "showIcon": true,
         "showText": true,
-        "id": "variant_1763832184872",
-        "name": "IP"
+        "visibilityCommand": "",
+        "visibilityInterval": 0,
+        "id": "variant_1792273948340",
+        "name": "mic-mode"
       }
     ]
   },

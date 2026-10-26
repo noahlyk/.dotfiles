@@ -1,6 +1,7 @@
+[DetailsMode]
+PreviewSize=80
+
 [General]
-Version=202
-ViewPropsTimestamp=2026,9,18,13,20,59.797
 BrowseThroughArchives=true
 ConfirmClosingMultipleTabs=false
 RememberOpenedTabs=true
@@ -10,6 +11,11 @@ ShowSpaceInfo=true
 ShowStatusBar=true
 SplitView=false
 UseTabForSwitchingSplitView=true
+Version=202
+ViewPropsTimestamp=2026,9,18,13,20,59.797
+
+[IconsMode]
+PreviewSize=80
 
 [KFileDialog Settings]
 Places Icons Auto-resize=false
@@ -17,6 +23,9 @@ Places Icons Static Size=22
 
 [MainWindow]
 MenuBar=Disabled
+
+[UiSettings]
+ColorScheme=BreezeDark
 
 [VersionControl]
 enabledPlugins=Git

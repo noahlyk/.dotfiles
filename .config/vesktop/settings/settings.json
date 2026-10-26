@@ -571,6 +571,34 @@
         },
         "GifProviderSwitcher": {
             "enabled": false
+        },
+        "AddAttachments": {
+            "enabled": false
+        },
+        "VolumeRing": {
+            "enabled": true,
+            "silentDb": -69.99871090395247,
+            "normalDb": -27.229446611971056,
+            "loudDb": -12.086740195466447,
+            "clipDb": -3.8999675016176596,
+            "minOpacity": 0.3365884169881181,
+            "earrapeSensitivity": 1,
+            "hotDb": -4,
+            "autoMuteEnabled": true,
+            "debugSplitRing": false,
+            "autoLevel": true,
+            "headroomDb": 10,
+            "attenuation": 20.563467559975386,
+            "autoMuteSeconds": 2.0344529306708274
+        },
+        "FixDiscordCss": {
+            "enabled": true
+        },
+        "DirectFileDownload": {
+            "enabled": false
+        },
+        "JumpToTop": {
+            "enabled": false
         }
     },
     "uiElements": {
@@ -587,7 +615,7 @@
         "authenticated": false,
         "url": "https://api.vencord.dev/",
         "settingsSync": false,
-        "settingsSyncVersion": 1791504550826
+        "settingsSyncVersion": 1792933430556
     },
     "nativeTitleBar": false
 }
