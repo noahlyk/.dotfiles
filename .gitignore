@@ -39,3 +39,12 @@ package-lock.json
 # Python bytecode cache
 __pycache__/
 *.pyc
+
+# Steno: compiled dictionary cache (root-owned, regenerated) and per-tool
+# runtime state/dictionary copies; the real dictionary is keymux/steno/main.json
+.config/keymux/steno/cache/
+.config/keymux/steno/lapwing/
+.config/plover/main.json
+.config/plover/user.json
+.config/plover/plover.log
+.config/steno-lessions/progress.json
