@@ -127,6 +127,17 @@
   "notificationShowTimeoutBar": true,
   "notificationHistoryMaxCount": 200,
   "notificationHistoryMaxAgeDays": 0,
+  "notificationRules": [
+    {
+      "enabled": true,
+      "field": "appName",
+      "pattern": "Plover",
+      "matchType": "exact",
+      "action": "default",
+      "urgency": "default",
+      "bypassDnd": false
+    }
+  ],
   "notificationFocusedMonitor": true,
   "osdAlwaysShowValue": true,
   "osdPosition": 0,
