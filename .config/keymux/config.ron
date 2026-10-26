@@ -21,7 +21,8 @@
         hold_do_nothing_emits_tap: true,
     ),
     enabled_keyboards: [
-        "*",
+        "0c45:8092:0110:0003", // Epomaker HE80
+        // "16c0:27db:0111:0003", // Glove80
     ],
     remaps: {
         KC_A: MT(KC_A, KC_LGUI),
@@ -149,6 +150,7 @@
         },
     ),
     per_keyboard_overrides: {
+        // Glove80
        "16c0:27db:0111:0003": (
             default_layer: Some("steno"),
             remaps: Some({
