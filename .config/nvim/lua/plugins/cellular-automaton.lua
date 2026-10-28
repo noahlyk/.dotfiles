@@ -10,12 +10,19 @@ return {
         for name, _ in pairs(ca.animations) do
           table.insert(animations, name)
         end
-        ca.start_animation(animations[math.random(#animations)])
+        -- skip ca.start_animation: its tree-sitter parser guard rejects filetypes without a parser
+        require("cellular-automaton.manager").execute_animation(ca.animations[animations[math.random(#animations)]])
       end,
       desc = "CellularAutomaton random animation",
     },
   },
   config = function()
+    -- no parser for this buffer: treat as unhighlighted instead of erroring
+    local get_captures_at_pos = vim.treesitter.get_captures_at_pos
+    vim.treesitter.get_captures_at_pos = function(...)
+      local ok, captures = pcall(get_captures_at_pos, ...)
+      return ok and captures or {}
+    end
     require("cellular-automaton").register_animation {
       fps = 144,
       name = "slide",
