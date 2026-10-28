@@ -156,10 +156,10 @@
             default_layer: Some("steno"),
             remaps: Some({
                 KC_ESC: KC_ESC,
-                KC_F1: TO("steno"),
+                KC_F1: TO("base"),
                 KC_F8: TO("stenopractice"),
                 KC_F9: TO("nohrm"),
-                KC_F10: TO("base"),
+                KC_F10: TO("steno"),
             }),
             layers: Some({
                 "stenopractice": (
@@ -179,8 +179,6 @@
                         KC_DEL: KC_N,
                         KC_BSPC: KC_M,
 
-                        KC_F8: KC_F8,
-                        KC_F9: KC_F9,
                         KC_CAPS: TG("stenopractice"),
                     },
                 ),
@@ -192,15 +190,13 @@
                             "-E": Key(KC_DEL),
                             "-U": Key(KC_BSPC),
                         },
-                        // Same lookup stroke as the global steno layer: this layer replaces it
-                        // on this keyboard, so it needs its own
                         lookup_stroke: Some("HRAOUP"),
                     )),
                     remaps: {
-                        KC_F1: TO("steno"),
+                        KC_F1: TO("base"),
                         KC_F8: TO("stenopractice"),
                         KC_F9: TO("nohrm"),
-                        KC_F10: TO("base"),
+                        KC_F10: TO("steno"),
                     },
                     disabled_in_game_mode: true,
                 ),

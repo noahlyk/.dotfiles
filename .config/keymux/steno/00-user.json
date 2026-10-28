@@ -1,0 +1,11 @@
+{
+    "#": "#",
+
+    "SPW": "{:back}",
+    "PW-FP": "{:back}",
+    "SWA*": "{:swap}",
+    "R*E": "{:redo}",
+    "*RP": "{:undo_word}",
+
+    "KWHA*UL": "yall"
+}

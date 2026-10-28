@@ -51,3 +51,12 @@ __pycache__/
 
 # Plover Qt window geometry/toolbar state
 .config/Open Steno Project/
+
+# Photocraft runtime state
+.config/photocraft/instance.*
+.config/photocraft/logs/
+.config/photocraft/preferences.json
+.config/photocraft/ui.ron
+
+# Claude Code local settings
+.claude/settings.local.json
