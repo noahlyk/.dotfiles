@@ -60,3 +60,6 @@ __pycache__/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Disabled copies of the plover-lapwing plugin dictionaries (regenerable)
+.config/keymux/steno/disabled_lapwing/
