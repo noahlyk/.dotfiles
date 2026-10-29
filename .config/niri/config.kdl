@@ -112,7 +112,6 @@ overview {
 spawn-at-startup "bash" "-c" "wl-paste --watch cliphist store &"
 // Each lands on its workspace via open-on-workspace rules in custom-overrides.kdl;
 // focus-on-open.sh then focuses firefox/keepassxc/kitty/obs when they open
-spawn-at-startup "vesktop"
 spawn-at-startup "steam" "-silent"
 spawn-at-startup "firefox"
 spawn-at-startup "bash" "-c" "$HOME/.config/niri/scripts/focus-on-open.sh"
