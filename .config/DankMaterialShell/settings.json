@@ -159,6 +159,22 @@
   "displayProfiles": {
     "niri": {}
   },
+  "connectedFrameBarStyleBackups": {
+    "default": {
+      "shadowIntensity": 0,
+      "squareCorners": false,
+      "attachToScreenEdge": false,
+      "gothCornersEnabled": false,
+      "borderEnabled": false
+    },
+    "bar1793292671340": {
+      "shadowIntensity": 0,
+      "squareCorners": false,
+      "attachToScreenEdge": false,
+      "gothCornersEnabled": false,
+      "borderEnabled": false
+    }
+  },
   "barConfigs": [
     {
       "id": "default",
@@ -341,7 +357,152 @@
       "shadowOpacity": 60,
       "maximizeWidgetIcons": false,
       "maximizeWidgetText": false,
-      "removeWidgetPadding": false
+      "removeWidgetPadding": false,
+      "attachToScreenEdge": false
+    },
+    {
+      "id": "bar1793292671340",
+      "name": "Bar 2",
+      "enabled": true,
+      "position": 0,
+      "screenPreferences": [
+        {
+          "name": "DP-2",
+          "model": "VS278",
+          "modelIndex": 0
+        }
+      ],
+      "showOnLastDisplay": false,
+      "leftWidgets": [
+        {
+          "id": "spacer",
+          "enabled": true,
+          "size": 5
+        },
+        {
+          "id": "launcherButton",
+          "enabled": true
+        },
+        {
+          "id": "workspaceSwitcher",
+          "enabled": true
+        },
+        {
+          "id": "music",
+          "enabled": true,
+          "mediaSize": 0
+        },
+        {
+          "id": "systemTray",
+          "enabled": true,
+          "trayUseInlineExpansion": false
+        },
+        {
+          "id": "appsDock",
+          "enabled": true,
+          "barMaxVisibleApps": 0,
+          "barMaxVisibleRunningApps": 0,
+          "barShowOverflowBadge": false
+        }
+      ],
+      "centerWidgets": [],
+      "rightWidgets": [
+        {
+          "id": "capsLockIndicator",
+          "enabled": true
+        },
+        {
+          "id": "dankActions:variant_1792273948340",
+          "enabled": true
+        },
+        {
+          "id": "extendedNetworkToggle",
+          "enabled": true
+        },
+        {
+          "id": "vpn",
+          "enabled": true
+        },
+        {
+          "id": "dankKDEConnect",
+          "enabled": true
+        },
+        {
+          "id": "systemUpdate",
+          "enabled": true
+        },
+        {
+          "id": "notificationButton",
+          "enabled": true
+        },
+        {
+          "id": "controlCenterButton",
+          "enabled": true,
+          "showAudioPercent": true,
+          "showBrightnessIcon": true,
+          "showBrightnessPercent": true,
+          "showMicIcon": true,
+          "showMicPercent": true,
+          "showBatteryIcon": true,
+          "showPrinterIcon": true
+        },
+        {
+          "id": "powerMenuButton",
+          "enabled": true
+        },
+        {
+          "id": "spacer",
+          "enabled": true,
+          "size": 5
+        }
+      ],
+      "spacing": 0,
+      "innerPadding": -5,
+      "barLengthPadding": 0,
+      "bottomGap": -3,
+      "attachToScreenEdge": false,
+      "transparency": 0,
+      "widgetTransparency": 1,
+      "squareCorners": false,
+      "noBackground": false,
+      "gothCornersEnabled": false,
+      "gothCornerRadiusOverride": false,
+      "gothCornerRadiusValue": 12,
+      "borderEnabled": false,
+      "borderColor": "surfaceText",
+      "borderOpacity": 1,
+      "borderThickness": 1,
+      "widgetOutlineEnabled": true,
+      "widgetOutlineColor": "surfaceText",
+      "widgetOutlineOpacity": 0.2,
+      "widgetOutlineThickness": 1,
+      "widgetPadding": 8,
+      "maximizeWidgetIcons": false,
+      "maximizeWidgetText": false,
+      "removeWidgetPadding": false,
+      "fontScale": 1,
+      "iconScale": 1,
+      "autoHide": false,
+      "autoHideStrict": false,
+      "autoHideDelay": 250,
+      "showOnWindowsOpen": false,
+      "openOnOverview": true,
+      "visible": true,
+      "popupGapsAuto": true,
+      "popupGapsManual": 4,
+      "maximizeDetection": true,
+      "useOverlayLayer": false,
+      "scrollEnabled": false,
+      "scrollXBehavior": "column",
+      "scrollYBehavior": "workspace",
+      "hoverPopouts": false,
+      "hoverPopoutDelay": 0,
+      "shadowIntensity": 0,
+      "shadowOpacity": 60,
+      "shadowDirectionMode": "inherit",
+      "shadowDirection": "top",
+      "shadowColorMode": "default",
+      "shadowCustomColor": "#000000"
     }
   ],
   "desktopClockCustomColor": {
@@ -420,7 +581,11 @@
       "allowWithoutTrigger": true
     }
   },
+  "frameEnabled": true,
+  "frameThickness": 4,
+  "frameBarSize": 31,
   "frameShowOnOverview": true,
   "frameCloseGaps": false,
+  "frameBarInsetPadding": 0,
   "configVersion": 18
 }
