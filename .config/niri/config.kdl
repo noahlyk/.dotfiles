@@ -197,7 +197,7 @@ binds {
 
 
     Mod+Shift+C hotkey-overlay-title="Open Odds Calculator" {
-        spawn "kitty" "sh" "-c" "cd ~/code/fibsussy/odds && exec $HOME/.local/bin/uv run python launch.py"
+        spawn "kitty" "sh" "-c" "cd ~/code/noahlyk/odds && exec $HOME/.local/bin/uv run python launch.py"
     }
     Mod+Space hotkey-overlay-title="Application Launcher" {
         spawn "dms" "ipc" "call" "spotlight" "toggle";
