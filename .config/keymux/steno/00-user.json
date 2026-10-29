@@ -1,5 +1,6 @@
 {
     "#": "#",
+    "PHRUP": "{PLOVER:LOOKUP}",
 
     "SPW": "{:back}",
     "PW-FP": "{:back}",
@@ -7,5 +8,5 @@
     "R*E": "{:redo}",
     "*RP": "{:undo_word}",
 
-    "KWHA*UL": "yall"
+    "KWRA*UL": "yall"
 }

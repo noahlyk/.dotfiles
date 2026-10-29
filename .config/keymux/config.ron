@@ -132,7 +132,12 @@
         "steno": (
             priority: 99,
             kind: Steno((
-                lookup_stroke: Some("HRAOUP"), // (it reads "loo-UP")
+                // lyk's join key: Q was S-'s extra key (alongside A); giving it to "^" here
+                // takes it over, so only A presses S- now. See lyk-steno-dict and
+                // keymux's src/steno/layout.rs (EXTRA_KEYS) for what it's for.
+                layout_overrides: {
+                    "^": Key(KC_Q),
+                },
             )),
             remaps: {
                 KC_CAPS: TO("base"),
@@ -148,6 +153,11 @@
             KC_D: SOCD(KC_D, [KC_A]),
             KC_F: KC_F,
             KC_LALT: KC_LALT,
+        },
+    ),
+    overlay: (
+        overlay_overrides: {
+            "^": SplitKey(slot: "S-", half: Top),
         },
     ),
     per_keyboard_overrides: {
@@ -189,8 +199,10 @@
                             "O-": Key(KC_ENT),
                             "-E": Key(KC_DEL),
                             "-U": Key(KC_BSPC),
+                            // lyk's join key, same as the main steno layer below; check this
+                            // is actually a key you have free on the Glove80's own layout
+                            "^": Key(KC_Q),
                         },
-                        lookup_stroke: Some("HRAOUP"),
                     )),
                     remaps: {
                         KC_F1: TO("base"),
