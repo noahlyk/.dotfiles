@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Closed Claude chats: the most recent conversation of every project that has no live Claude
+# pane right now, so Alt+a / the Alt+g dashboard can reopen one where it left off.
+#
+#   claude-chats closed             one row per project: mtime US session_id US cwd US last_prompt
+#   claude-chats describe SID       last prompt and the end of Claude's last reply (dashboard preview)
+#   claude-chats reopen SID [CLIENT]
+#                                   put the chat back: its tmux session (named like tmux-leap names it:
+#                                   ~/path, dots as _) gets a window running `claude --resume SID`,
+#                                   created if the session is gone; then switch CLIENT to it
+#
+# Tunables (tmux global options): @claude_reopen_days (default 3) = how far back a chat counts as recent.
+# A project counts as open when any pane running claude sits in its directory, so a second chat in a
+# project that already has one open is never offered.
+set -uo pipefail
+
+projects_dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects
+field_separator=$'\x1f'
+
+one_line() { tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'; }
+
+transcript_of() { find "$projects_dir" -maxdepth 2 -name "$1.jsonl" -print -quit 2>/dev/null; }
+
+transcript_cwd() { grep -m1 -o '"cwd":"[^"]*"' "$1" | head -1 | sed 's/^"cwd":"//; s/"$//'; }
+
+# The last thing typed by a human: text prompts only (no tool results, command wrappers or reminders).
+last_prompt() {
+  tail -n 800 "$1" | jq -r '
+    select(.type == "user")
+    | .message.content
+    | if type == "string" then . else (map(select(.type == "text").text) | join(" ")) end
+    | gsub("<system-reminder>[\\s\\S]*?</system-reminder>"; " ")
+    | gsub("<pasted_content[^>]*>[\\s\\S]*?</pasted_content>"; " [pasted] ")
+    | gsub("\\s+"; " ") | sub("^ "; "")
+    | select(test("\\S") and (startswith("<") | not))
+    | .[0:200]' 2>/dev/null | tail -1
+}
+
+last_reply() {
+  tail -n 800 "$1" | jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text' 2>/dev/null |
+    tail -c 1500
+}
+
+live_claude_directories() {
+  tmux list-panes -a -F "#{pane_current_command}${field_separator}#{pane_current_path}" 2>/dev/null |
+    awk -F "$field_separator" '$1 == "claude" { print $2 }' | sort -u
+}
+
+list_closed() {
+  local days live mtime file cwd prompt
+  days=$(tmux show -gqv @claude_reopen_days 2>/dev/null); days=${days:-3}
+  live=$(live_claude_directories)
+  local -A seen=()
+  find "$projects_dir" -maxdepth 2 -name '*.jsonl' -mmin "-$(( days * 1440 ))" -printf '%T@\t%p\n' 2>/dev/null |
+    sort -rn |
+    while IFS=$'\t' read -r mtime file; do
+      cwd=$(transcript_cwd "$file")
+      [[ -n $cwd && -d $cwd && $cwd != /tmp* ]] || continue
+      [[ -n ${seen[$cwd]:-} ]] && continue
+      grep -qxF -- "$cwd" <<<"$live" && { seen[$cwd]=1; continue; }
+      prompt=$(last_prompt "$file")
+      [[ -n $prompt ]] || continue
+      seen[$cwd]=1
+      printf '%s%s%s%s%s%s%s\n' "${mtime%.*}" "$field_separator" "$(basename "$file" .jsonl)" "$field_separator" "$cwd" "$field_separator" "$prompt"
+    done
+}
+
+session_name_for() {
+  local name=${1/#$HOME/\~}
+  echo "${name//./_}"
+}
+
+reopen() {
+  local session_id=$1 client_name=${2:-} file cwd name command
+  file=$(transcript_of "$session_id")
+  [[ -n $file ]] || { tmux display-message ${client_name:+-c "$client_name"} "No transcript for $session_id"; return 1; }
+  cwd=$(transcript_cwd "$file")
+  [[ -d $cwd ]] || { tmux display-message ${client_name:+-c "$client_name"} "Project folder is gone: $cwd"; return 1; }
+  name=$(session_name_for "$cwd")
+  command="zsh -ic 'claude --resume $session_id; exec zsh'"
+  if tmux has-session -t "=$name" 2>/dev/null; then
+    tmux new-window -t "=$name:" -c "$cwd" -n claude "$command"
+  else
+    tmux new-session -d -s "$name" -c "$cwd" -n claude "$command"
+  fi
+  tmux switch-client ${client_name:+-c "$client_name"} -t "=$name"
+}
+
+describe() {
+  local file
+  file=$(transcript_of "$1")
+  [[ -n $file ]] || exit 0
+  printf 'Project  %s\n\nYou asked:\n  %s\n\nClaude ended with:\n' "$(transcript_cwd "$file")" "$(last_prompt "$file")"
+  last_reply "$file" | fold -s -w "${FZF_PREVIEW_COLUMNS:-80}" | sed 's/^/  /'
+}
+
+case ${1:-} in
+  closed) list_closed ;;
+  describe) describe "${2:-}" ;;
+  reopen) reopen "${2:-}" "${3:-}" ;;
+  *) echo "Usage: claude-chats closed | describe SID | reopen SID [CLIENT]" >&2; exit 1 ;;
+esac
