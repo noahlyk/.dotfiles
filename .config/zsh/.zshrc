@@ -16,3 +16,6 @@ done
 unset _zrc
 
 [[ -n $ZSH_PROFILE ]] && zprof
+
+# a clean first prompt: whatever the last conf.d line returned must not show up as a failed command
+true
