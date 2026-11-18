@@ -41,6 +41,9 @@ last_reply() {
     tail -c 1500
 }
 
+# Session ids still alive in the Claude daemon: they are reached with claude-sessions, never resumed twice.
+live_session_ids() { claude agents --json 2>/dev/null | jq -r '.[].sessionId' 2>/dev/null; }
+
 live_claude_directories() {
   tmux list-panes -a -F "#{pane_current_command}${field_separator}#{pane_current_path}" 2>/dev/null |
     awk -F "$field_separator" '$1 == "claude" { print $2 }' | sort -u
@@ -50,10 +53,12 @@ list_closed() {
   local days live mtime file cwd prompt
   days=$(tmux show -gqv @claude_reopen_days 2>/dev/null); days=${days:-3}
   live=$(live_claude_directories)
+  local alive; alive=$(live_session_ids)
   local -A seen=()
   find "$projects_dir" -maxdepth 2 -name '*.jsonl' -mmin "-$(( days * 1440 ))" -printf '%T@\t%p\n' 2>/dev/null |
     sort -rn |
     while IFS=$'\t' read -r mtime file; do
+      grep -qxF -- "$(basename "$file" .jsonl)" <<<"$alive" && continue
       cwd=$(transcript_cwd "$file")
       [[ -n $cwd && -d $cwd && $cwd != /tmp* ]] || continue
       [[ -n ${seen[$cwd]:-} ]] && continue

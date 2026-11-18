@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+"""Claude sessions as one model: what needs you, where it lives, how to get there.
+
+Claude Code runs your chats two ways, and tmux can only see one of them well:
+  * interactive  `claude` typed into a pane. Its hook (Scripts/claude/tmux-claude-state.sh) sets the
+                 pane option @claude_state (working / waiting / done).
+  * background   sessions hosted by the Claude daemon, shown in `claude agents`. A tmux pane is only a
+                 viewer: its title is the session's name, and several sessions can share one `claude
+                 agents` pane. The daemon (`claude agents --json`) is the only thing that knows each
+                 one's state (working / blocked / done), including sessions no pane is showing.
+
+`sync` reads both worlds, remembers when each background session's state began and whether you have
+seen a finished one, and writes the result back onto the panes that show a background session
+(@claude_state, @claude_state_since) so tab markers keep working off pane options.
+
+Commands (all quiet; they are bound to keys and status-line jobs):
+  sync [--force]                refresh from the daemon (throttled unless --force)
+  next PANE_ID CLIENT           Alt+a: jump to the next place worth looking (see TIERS)
+  peek PANE_ID                  name of the target `next` would pick in tier 1 (status pill)
+  badge WINDOW_ID               the status-bar pill text: sessions needing you, outside WINDOW_ID
+  ack-window WINDOW_ID          you looked at this window: its finished sessions are seen
+  unattached                    TSV of live background sessions no pane shows (dashboard rows)
+  open SESSION_ID CLIENT        show a background session: its pane, else attach in a tmux window
+
+TIERS for Alt+a, each a cycle; a press moves to the next entry after the pane you are on (wrapping),
+and falls through to the next tier when its cycle has nowhere else to go:
+  1 needs you   waiting/blocked first, then finished-and-unseen; longest-waiting first
+  2 idle        open and ready, in session/window order
+  3 working     still running; panes first, then sessions no pane shows
+  4 closed      a live background session no pane shows, else the newest closed chat (claude-chats)
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+US = "\x1f"
+HOME = str(Path.home())
+STATE_HOME = Path(os.environ.get("XDG_STATE_HOME", f"{HOME}/.local/state"))
+STORE = STATE_HOME / "claude-sessions.json"
+SCRIPT_DIR = Path(__file__).resolve().parent
+SYNC_THROTTLE_SECONDS = 1.5
+
+
+def run(argv, timeout=6):
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        return done.stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def tmux(*args):
+    return run(["tmux", *args])
+
+
+def tmux_option(name, default=""):
+    value = tmux("show", "-gqv", name).strip()
+    return value or default
+
+
+# --- the two sources -------------------------------------------------------------------------
+
+def daemon_sessions():
+    """Active sessions per the Claude daemon: list of dicts (empty if the daemon is unreachable)."""
+    out = run(["claude", "agents", "--json"], timeout=8)
+    if not out.strip():
+        return None  # daemon unreachable or timed out: keep what we remembered
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, list) else None
+
+
+PANE_FORMAT = US.join([
+    "#{pane_id}", "#{session_name}", "#{window_id}", "#{window_index}", "#{pane_index}",
+    "#{pane_title}", "#{pane_current_command}", "#{pane_tty}", "#{pane_pid}",
+    "#{@claude_state}", "#{@claude_state_since}", "#{@claude_state_src}", "#{E:@claude_title_full}",
+])
+PANE_KEYS = ["id", "session", "window_id", "window", "index", "title", "command", "tty", "pid",
+             "state", "since", "src", "claude_title"]
+
+
+def panes():
+    rows = []
+    for line in tmux("list-panes", "-a", "-F", PANE_FORMAT).splitlines():
+        fields = line.split(US)
+        if len(fields) == len(PANE_KEYS):
+            rows.append(dict(zip(PANE_KEYS, fields)))
+    return rows
+
+
+def clean_title(title):
+    """Pane title without Claude's leading status glyph (✳ ✻ ...)."""
+    return re.sub(r"^[^\w]+", "", title).strip()
+
+
+def tty_of(pid):
+    tty = run(["ps", "-o", "tty=", "-p", str(pid)]).strip()
+    return f"/dev/{tty}" if tty and tty != "?" else ""
+
+
+# --- persistent memory: when did a state begin, has the user seen it -------------------------------
+
+def load_store():
+    try:
+        return json.loads(STORE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"sessions": {}, "synced_at": 0}
+
+
+def save_store(store):
+    STORE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STORE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(store))
+    tmp.replace(STORE)
+
+
+def effective_state(session):
+    state, status = session.get("state"), session.get("status")
+    if state == "blocked":
+        return "waiting"
+    if state == "working" or (state is None and status == "busy"):
+        return "working"
+    if state == "done":
+        return "done"
+    return "idle"
+
+
+# --- the model --------------------------------------------------------------------------------
+
+def build():
+    """Returns (entries, store). Entries: one per place Claude can be reached.
+
+    entry: kind 'pane' | 'bg', pane (pane dict or None), sid, name, cwd, state, since, seen
+    """
+    store = load_store()
+    pane_list = panes()
+    sessions = daemon_sessions()
+    now = int(time.time())
+    interactive_ttys = set()
+    background = []
+    for session in sessions or []:
+        if session.get("kind") == "interactive":
+            tty = tty_of(session.get("pid", 0))
+            if tty:
+                interactive_ttys.add(tty)
+        elif session.get("kind") == "background":
+            background.append(session)
+
+    records = store["sessions"]
+    if sessions is not None:
+        live_ids = set()
+        for session in background:
+            sid = session["sessionId"]
+            live_ids.add(sid)
+            state = effective_state(session)
+            record = records.get(sid)
+            if record is None:
+                # first sight: a finished session was finished long before we looked, so it counts as seen
+                records[sid] = {"state": state, "since": now, "seen": state == "done"}
+            elif record["state"] != state:
+                records[sid] = {"state": state, "since": now, "seen": False}
+        for session in background:
+            records[session["sessionId"]]["name"] = session.get("name") or session["sessionId"][:8]
+        for sid in list(records):
+            if sid not in live_ids:
+                del records[sid]
+        store["synced_at"] = time.time()
+
+    claude_panes = [p for p in pane_list if p["command"] == "claude"]
+    entries, claimed = [], set()
+    by_title = {}
+    for pane in claude_panes:
+        if pane["tty"] in interactive_ttys:
+            continue  # an interactive claude: its own hook owns its state
+        by_title.setdefault(clean_title(pane["title"]), []).append(pane)
+    for session in background:
+        sid = session["sessionId"]
+        record = records.get(sid, {"state": effective_state(session), "since": now, "seen": True})
+        matched = by_title.get(session.get("name", ""), [])
+        for pane in matched:
+            claimed.add(pane["id"])
+        entries.append({
+            "kind": "bg", "pane": matched[0] if matched else None, "panes": matched, "sid": sid,
+            "short": session.get("id", sid[:8]), "name": session.get("name") or sid[:8],
+            "cwd": session.get("cwd", HOME), "state": record["state"], "since": record["since"],
+            "seen": record["seen"],
+        })
+    for pane in claude_panes:
+        if pane["id"] in claimed:
+            continue
+        if pane["tty"] not in interactive_ttys and is_agents_viewer(pane):
+            continue  # the hub itself, not a chat
+        entries.append({
+            "kind": "pane", "pane": pane, "panes": [pane], "sid": "", "short": "",
+            "name": pane["claude_title"] or clean_title(pane["title"]) or pane["session"],
+            "cwd": "", "state": pane["state"] or "idle",
+            "since": int(pane["since"] or 0), "seen": False,
+        })
+    return entries, store, pane_list
+
+
+def is_agents_viewer(pane):
+    args = run(["ps", "-o", "args=", "-p", pane["pid"]])
+    return bool(re.search(r"\bagents\b", args))
+
+
+def needs_you(entry):
+    return entry["state"] == "waiting" or (entry["state"] == "done" and not entry["seen"] and entry["kind"] == "bg") \
+        or (entry["kind"] == "pane" and entry["state"] == "done")
+
+
+def tier_of(entry):
+    if needs_you(entry):
+        return 1
+    if entry["state"] == "working":
+        return 3
+    if entry["pane"] is None:
+        return 4
+    return 2
+
+
+def order_key(entry):
+    pane = entry["pane"]
+    if tier_of(entry) == 1:
+        return (0 if entry["state"] == "waiting" else 1, entry["since"], 0, 0, "")
+    placement = (pane["session"], int(pane["window"]), int(pane["index"])) if pane else ("￿", 0, 0)
+    return (0, entry["since"] if pane is None else 0, placement[0], placement[1], placement[2])
+
+
+def write_pane_options(entries, pane_list):
+    """Make panes showing a background session carry its state, so tab markers need no special case."""
+    commands, shown = [], set()
+    for entry in entries:
+        if entry["kind"] != "bg":
+            continue
+        visible = "" if entry["state"] in ("idle",) or (entry["state"] == "done" and entry["seen"]) else entry["state"]
+        for pane in entry["panes"]:
+            shown.add(pane["id"])
+            if pane["state"] != visible or pane["src"] != "bg":
+                commands += ["set", "-p", "-t", pane["id"], "@claude_state_src", "bg", ";"]
+                if visible:
+                    commands += ["set", "-p", "-t", pane["id"], "@claude_state", visible, ";",
+                                 "set", "-p", "-t", pane["id"], "@claude_state_since", str(entry["since"]), ";"]
+                else:
+                    commands += ["set", "-pu", "-t", pane["id"], "@claude_state", ";"]
+    for pane in pane_list:
+        if pane["src"] == "bg" and pane["id"] not in shown:
+            commands += ["set", "-pu", "-t", pane["id"], "@claude_state", ";",
+                         "set", "-pu", "-t", pane["id"], "@claude_state_src", ";"]
+    if commands:
+        tmux(*commands[:-1])
+
+
+def sync(force=False):
+    store = load_store()
+    if not force and time.time() - store.get("synced_at", 0) < SYNC_THROTTLE_SECONDS:
+        return
+    entries, store, pane_list = build()
+    save_store(store)
+    write_pane_options(entries, pane_list)
+
+
+def mark_seen(store, sid):
+    if sid in store["sessions"]:
+        store["sessions"][sid]["seen"] = True
+
+
+# --- commands ----------------------------------------------------------------------------------
+
+def ordered_tier(entries, tier):
+    return sorted((e for e in entries if tier_of(e) == tier), key=order_key)
+
+
+def after_current(tier_entries, current_pane_id):
+    """Entries of one tier after the pane you are on, wrapping, without that pane's own entries."""
+    flags = [any(p["id"] == current_pane_id for p in e["panes"]) for e in tier_entries]
+    if True in flags:
+        i = flags.index(True)
+        rotated = tier_entries[i + 1:] + tier_entries[:i]
+    else:
+        rotated = list(tier_entries)
+    return rotated
+
+
+def display_name(entry):
+    name = entry["name"] or ""
+    if not name or name == "Claude Code":
+        name = (entry["pane"] or {}).get("session", "").rsplit("/", 1)[-1] or entry["cwd"].rsplit("/", 1)[-1]
+    if len(name) > 20:
+        name = name[:21]
+        name = name.rsplit(" ", 1)[0] if " " in name else name
+    return name[:20]
+
+
+def session_name_for(cwd):
+    name = cwd.replace(HOME, "~", 1) if cwd.startswith(HOME) else cwd
+    return name.replace(".", "_")
+
+
+def open_entry(entry, client, store=None):
+    """Show an entry: focus its pane, or attach the background session in a tmux window."""
+    if entry["pane"] is not None:
+        run([str(SCRIPT_DIR / "claude-focus-pane"), entry["pane"]["id"], client])
+        return
+    cwd = entry["cwd"] if os.path.isdir(entry["cwd"]) else HOME
+    name = session_name_for(cwd)
+    command = f"zsh -ic 'claude attach {entry['short']}; exec zsh'"
+    if subprocess.run(["tmux", "has-session", "-t", f"={name}"], capture_output=True).returncode == 0:
+        tmux("new-window", "-t", f"={name}:", "-c", cwd, "-n", "claude", command)
+    else:
+        tmux("new-session", "-d", "-s", name, "-c", cwd, "-n", "claude", command)
+    switch = ["switch-client"] + (["-c", client] if client and client != "none" else []) + ["-t", f"={name}"]
+    tmux(*switch)
+
+
+def cmd_next(current, client):
+    entries, store, pane_list = build()
+    save_store(store)
+    write_pane_options(entries, pane_list)
+    for tier in (1, 2, 3):
+        candidates = after_current(ordered_tier(entries, tier), current)
+        if candidates:
+            target = candidates[0]
+            if target["kind"] == "bg":
+                mark_seen(store, target["sid"])
+                save_store(store)
+            open_entry(target, client)
+            return
+    detached = [e for e in ordered_tier(entries, 4)]
+    if detached:
+        target = sorted(detached, key=lambda e: -e["since"])[0]
+        mark_seen(store, target["sid"])
+        save_store(store)
+        open_entry(target, client)
+        return
+    if tmux_option("@claude_next_reopen") != "off":
+        row = run([str(SCRIPT_DIR / "claude-chats"), "closed"]).splitlines()[:1]
+        if row:
+            fields = row[0].split(US)
+            if len(fields) > 1:
+                run([str(SCRIPT_DIR / "claude-chats"), "reopen", fields[1], client])
+
+
+def cmd_peek(current):
+    entries, store, _ = build()
+    candidates = after_current(ordered_tier(entries, 1), current)
+    if candidates:
+        print(display_name(candidates[0]))
+
+
+def cmd_badge(window_id):
+    """Status-bar pill. Cheap on purpose: runs every status refresh; asks for a sync when stale."""
+    store = load_store()
+    if time.time() - store.get("synced_at", 0) > 4:
+        subprocess.Popen([sys.argv[0], "sync", "--force"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    pane_list = panes()
+    records = store["sessions"]
+    titles = {}
+    for pane in pane_list:
+        titles.setdefault(clean_title(pane["title"]), []).append(pane)
+    waiting = done = 0
+    first = None
+    items = []
+    for pane in pane_list:
+        if pane["command"] != "claude" or pane["window_id"] == window_id:
+            continue
+        if pane["src"] == "bg" or pane["state"] not in ("waiting", "done"):
+            continue
+        items.append((0 if pane["state"] == "waiting" else 1, int(pane["since"] or 0), pane["claude_title"] or clean_title(pane["title"]) or pane["session"]))
+    for sid, record in records.items():
+        if not (record["state"] == "waiting" or (record["state"] == "done" and not record["seen"])):
+            continue
+        name = record.get("name", "")
+        items.append((0 if record["state"] == "waiting" else 1, record["since"], name))
+    # sessions shown in the window you are in do not count (you are looking at them)
+    shown_here = {clean_title(p["title"]) for p in pane_list if p["window_id"] == window_id}
+    items = [i for i in items if i[2] not in shown_here]
+    items.sort()
+    waiting = sum(1 for i in items if i[0] == 0)
+    done = len(items) - waiting
+    if not items:
+        return
+    colour = tmux_option("@thm_red") if waiting else tmux_option("@thm_green")
+    crust = tmux_option("@thm_crust")
+    parts = []
+    if waiting:
+        parts.append(f"{waiting} waiting")
+    if done:
+        parts.append(f"{done} done")
+    name = (items[0][2] or "")[:20]
+    glyph = chr(0xF6000)
+    sys.stdout.write(f"#[fg={colour},bg=default]#[fg={crust},bg={colour}]{glyph} {' · '.join(parts)}  #[bold]{name}#[nobold]#[fg={colour},bg=default] ")
+
+
+def cmd_ack_window(window_id):
+    entries, store, pane_list = build()
+    for entry in entries:
+        if any(p["window_id"] == window_id for p in entry["panes"]):
+            if entry["kind"] == "bg" and entry["state"] == "done":
+                mark_seen(store, entry["sid"])
+    save_store(store)
+    entries, store, pane_list = build()
+    write_pane_options(entries, pane_list)
+
+
+def cmd_unattached():
+    entries, store, _ = build()
+    save_store(store)
+    for entry in sorted((e for e in entries if e["kind"] == "bg" and e["pane"] is None), key=lambda e: -e["since"]):
+        print(US.join([entry["sid"], entry["state"], str(entry["since"]), entry["cwd"], entry["name"], "1" if entry["seen"] else "0"]))
+
+
+def cmd_open(sid, client):
+    entries, store, pane_list = build()
+    for entry in entries:
+        if entry["sid"] == sid:
+            mark_seen(store, sid)
+            save_store(store)
+            open_entry(entry, client)
+            return
+
+
+def main(argv):
+    command = argv[1] if len(argv) > 1 else ""
+    if command == "sync":
+        sync("--force" in argv)
+    elif command == "next":
+        cmd_next(argv[2], argv[3] if len(argv) > 3 else "")
+    elif command == "peek":
+        cmd_peek(argv[2] if len(argv) > 2 else "")
+    elif command == "badge":
+        cmd_badge(argv[2] if len(argv) > 2 else "")
+    elif command == "ack-window":
+        cmd_ack_window(argv[2])
+    elif command == "unattached":
+        cmd_unattached()
+    elif command == "dump":
+        entries, _, _ = build()
+        for e in sorted(entries, key=lambda e: (tier_of(e), order_key(e))):
+            print(f"tier{tier_of(e)} {e['kind']:4} {e['state']:8} seen={int(e['seen'])} pane={(e['pane'] or {}).get('id','-'):4} {e['name']!r} {e['cwd']}")
+    elif command == "open":
+        cmd_open(argv[2], argv[3] if len(argv) > 3 else "")
+    else:
+        print(__doc__)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

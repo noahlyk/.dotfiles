@@ -15,6 +15,15 @@ event=$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null) 
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null) || session_id=""
 transcript_path=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null) || transcript_path=""
 
+# Background (daemon) sessions can't be matched to a pane from here, so refresh the session model
+# (Scripts/tmux/claude-sessions) on every event that changes state; it asks the daemon. The short
+# delay lets the daemon record the new state first. Runs before pane resolution on purpose.
+case "$event" in
+  SessionStart|UserPromptSubmit|Notification|Stop|SessionEnd)
+    setsid -f bash -c 'sleep 0.6; exec "$HOME/Scripts/tmux/claude-sessions" sync --force' >/dev/null 2>&1 < /dev/null
+    ;;
+esac
+
 # Claude Code's async hook runner only *sometimes* preserves the originating
 # session's $TMUX_PANE or controlling tty — confirmed live over several hours:
 # the same real panes fired dozens of hook events with neither signal usable,

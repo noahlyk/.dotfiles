@@ -4,6 +4,8 @@
 set -uo pipefail
 
 window_id=$1
+# background sessions shown in this window are seen now too (claude-sessions remembers per session)
+"$(dirname "$(readlink -f "$0")")/claude-sessions" ack-window "$window_id" >/dev/null 2>&1 &
 field_separator=$'\x1f'
 tmux list-panes -t "$window_id" -F "#{pane_id}${field_separator}#{@claude_state}${field_separator}#{@claude_notification_id}" |
   while IFS=$field_separator read -r pane_id state notification_id; do

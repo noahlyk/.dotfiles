@@ -23,7 +23,7 @@ human_age() {
 }
 
 claude_panes_by_urgency() {
-  tmux list-panes -a -F "#{pane_current_command}${field_separator}#{@claude_state}${field_separator}#{@claude_state_since}${field_separator}#{pane_id}${field_separator}#{session_name}${field_separator}#{window_index}${field_separator}#{@claude_task}${field_separator}#{E:@claude_title_full}" |
+  tmux list-panes -a -F "#{pane_current_command}${field_separator}#{@claude_state}${field_separator}#{@claude_state_since}${field_separator}#{pane_id}${field_separator}#{session_name}${field_separator}#{window_index}${field_separator}#{@claude_task}${field_separator}#{?#{E:@claude_title_full},#{E:@claude_title_full},#{pane_title}}" |
     awk -F "$field_separator" -v OFS="$field_separator" '
       $1 != "claude" && $2 == "" { next }
       {
@@ -65,6 +65,21 @@ list_claude_panes() {
       "$description" "$reset"
   done < <(claude_panes_by_urgency)
 
+  # Background sessions the Claude daemon is running that no pane is showing: Enter attaches them
+  local bg_id bg_state bg_since bg_dir bg_name bg_seen bg_colour bg_label
+  while IFS=$field_separator read -r bg_id bg_state bg_since bg_dir bg_name bg_seen; do
+    [[ -n $bg_id ]] || continue
+    case $bg_state in
+      waiting) bg_colour=$red; bg_label="waiting" ;;
+      working) bg_colour=$yellow; bg_label="working" ;;
+      done) if [[ $bg_seen == 1 ]]; then bg_colour=$dim; bg_label="idle"; else bg_colour=$green; bg_label="done"; fi ;;
+      *) bg_colour=$dim; bg_label="idle" ;;
+    esac
+    printf 'bg:%s\t%s%s%s%-8s %4s%s  %s%-22.22s%s %s%s%s\n' \
+      "$bg_id" "$bg_colour" "$claude_icon" "$icon_spacer" "$bg_label" "$(human_age $(( now - bg_since )))" "$reset" \
+      "$bold$text" "${bg_dir##*/}" "$reset" "$text" "$bg_name" "$reset"
+  done < <("$script_dir/claude-sessions" unattached)
+
   # Recent chats whose project has no Claude open: Enter reopens them (tmux session + claude --resume)
   local closed_mtime closed_id closed_dir closed_prompt
   while IFS=$field_separator read -r closed_mtime closed_id closed_dir closed_prompt; do
@@ -76,6 +91,10 @@ list_claude_panes() {
 }
 
 preview_pane() {
+  if [[ $1 == bg:* ]]; then
+    claude logs "${1#bg:}" 2>/dev/null | tail -n "${FZF_PREVIEW_LINES:-40}"
+    return
+  fi
   if [[ $1 == closed:* ]]; then
     "$script_dir/claude-chats" describe "${1#closed:}"
     return
@@ -84,7 +103,7 @@ preview_pane() {
 }
 
 kill_claude_pane() {
-  [[ $1 == closed:* ]] && return 0
+  [[ $1 == closed:* || $1 == bg:* ]] && return 0
   local pane_id=$1 pane_details session_name window_index title notification_id answer
   pane_details=$(tmux display -p -t "$pane_id" "#{session_name}${field_separator}#{window_index}${field_separator}#{E:@claude_title_full}${field_separator}#{@claude_notification_id}" 2>/dev/null) || return 0
   IFS=$field_separator read -r session_name window_index title notification_id <<< "$pane_details"
@@ -112,7 +131,7 @@ open_dashboard() {
   local choice
   choice=$(printf '%s\n' "$rows" | FZF_DEFAULT_OPTS="" fzf "${FZF_STYLE[@]}" \
     --ansi --delimiter=$'\t' --with-nth=2.. --no-sort \
-    --header='enter jump / reopen closed · ctrl-x kill · ctrl-r refresh · alt-g close' \
+    --header='enter jump / attach / reopen · ctrl-x kill · ctrl-r refresh · alt-g close' \
     --preview="'$script_path' --preview {1}" \
     --preview-window='down,60%,border-top' \
     --bind="ctrl-x:execute('$script_path' --kill {1})+reload('$script_path' --list)" \
@@ -120,7 +139,9 @@ open_dashboard() {
     --bind='alt-g:abort') || return 0
 
   local pane_id=${choice%%$'\t'*}
-  if [[ $pane_id == closed:* ]]; then
+  if [[ $pane_id == bg:* ]]; then
+    "$script_dir/claude-sessions" open "${pane_id#bg:}" "${origin_client:-}"
+  elif [[ $pane_id == closed:* ]]; then
     "$script_dir/claude-chats" reopen "${pane_id#closed:}" ${origin_client:+"$origin_client"}
   elif [[ -n $pane_id ]]; then
     "$script_dir/claude-focus-pane" "$pane_id" ${origin_client:+"$origin_client"}
