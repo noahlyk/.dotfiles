@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Prints the niri window id of the terminal (kitty) that runs a tmux client, by walking
+# up from the client process to a process that owns a niri window. Prints nothing if none.
+# Usage: niri-window-of-client CLIENT_NAME
+set -uo pipefail
+
+client_name=$1
+command -v niri >/dev/null || exit 0
+process_id=$(tmux display -p -c "$client_name" '#{client_pid}' 2>/dev/null)
+window_pids=$(niri msg -j windows 2>/dev/null | jq -r '.[] | "\(.pid) \(.id)"')
+
+while [[ -n $process_id && $process_id -gt 1 ]]; do
+  window_id=$(awk -v pid="$process_id" '$1 == pid { print $2; exit }' <<<"$window_pids")
+  if [[ -n $window_id ]]; then
+    echo "$window_id"
+    exit 0
+  fi
+  process_id=$(awk '/^PPid:/ { print $2 }' "/proc/$process_id/status" 2>/dev/null)
+done

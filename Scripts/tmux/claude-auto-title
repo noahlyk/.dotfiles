@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Names a Claude tab once: stores claude-suggest-title's name in the pane option @claude_title_auto
+# and never replaces it, so the tab keeps that name for the whole Claude session. Run detached by
+# ~/.claude/hooks/tmux-claude-state.sh on every prompt until the pane has a name. Skipped while a
+# hand-picked name (prefix N, @claude_title_override) is set.
+# Usage: claude-auto-title PANE_ID
+set -uo pipefail
+
+pane_id=$1
+scripts_dir=$(dirname "$(readlink -f "$0")")
+
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/claude-auto-title-${pane_id#%}.lock"
+flock -n 9 || exit 0
+
+[[ -z $(tmux show -pqv -t "$pane_id" @claude_title_override) ]] || exit 0
+[[ -z $(tmux show -pqv -t "$pane_id" @claude_title_auto) ]] || exit 0
+
+name=$("$scripts_dir/claude-suggest-title" "$pane_id")
+[[ -n $name ]] || exit 0
+[[ $(tmux display -p -t "$pane_id" '#{pane_current_command}') == claude ]] || exit 0
+
+tmux set -p -t "$pane_id" @claude_title_auto "$name"
+tmux list-clients -F '#{client_name}' 2>/dev/null | while read -r client_name; do
+  tmux refresh-client -S -t "$client_name" 2>/dev/null
+done
+exit 0

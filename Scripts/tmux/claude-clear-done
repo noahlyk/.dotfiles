@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
-# Visiting a window acknowledges every finished Claude pane in it.
+# Visiting a window acknowledges every finished Claude pane in it and closes the
+# desktop notifications of its panes (you are looking at them now).
 set -uo pipefail
 
 window_id=$1
 field_separator=$'\x1f'
-tmux list-panes -t "$window_id" -F "#{pane_id}${field_separator}#{@claude_state}" | while IFS=$field_separator read -r pane_id state; do
-  if [[ $state == done ]]; then tmux set -pu -t "$pane_id" @claude_state; fi
-done
+tmux list-panes -t "$window_id" -F "#{pane_id}${field_separator}#{@claude_state}${field_separator}#{@claude_notification_id}" |
+  while IFS=$field_separator read -r pane_id state notification_id; do
+    if [[ $state == done ]]; then
+      tmux set -pu -t "$pane_id" @claude_state
+      tmux set -p -t "$pane_id" @claude_state_since "$(date +%s)"
+    fi
+    if [[ -n $notification_id ]]; then
+      gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.CloseNotification "$notification_id" >/dev/null 2>&1
+      tmux set -pu -t "$pane_id" @claude_notification_id
+    fi
+  done

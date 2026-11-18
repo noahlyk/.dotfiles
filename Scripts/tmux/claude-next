@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Alt+a: jump to the next Claude that needs you, across all sessions. Waiting panes
+# (permission prompt or question) come first, longest wait first; then finished ones.
+# Pressing again moves on to the next one and wraps around.
+# Usage: claude-next CURRENT_PANE_ID CLIENT_NAME
+#        claude-next --peek CURRENT_PANE_ID   prints the name of the pane Alt+a would
+#        jump to (Claude's task title as on the tab, else the project), for the status pill
+set -uo pipefail
+
+script_dir=$(dirname "$(readlink -f "$0")")
+field_separator=$'\x1f'
+
+panes_needing_attention() {
+  tmux list-panes -a -F "#{@claude_state}${field_separator}#{@claude_state_since}${field_separator}#{pane_id}" |
+    awk -F "$field_separator" '
+      $1 == "waiting" { print 0, ($2 == "" ? 0 : $2), $3 }
+      $1 == "done"    { print 1, ($2 == "" ? 0 : $2), $3 }' |
+    sort -k1,1n -k2,2n | cut -d' ' -f3
+}
+
+next_pane_after() {
+  local current_pane=$1 queue index
+  mapfile -t queue < <(panes_needing_attention)
+  (( ${#queue[@]} > 0 )) || return 1
+  for index in "${!queue[@]}"; do
+    if [[ ${queue[$index]} == "$current_pane" ]]; then
+      echo "${queue[$(( (index + 1) % ${#queue[@]} ))]}"
+      return 0
+    fi
+  done
+  echo "${queue[0]}"
+}
+
+# Same name as the tab and the Alt+g dashboard: the title without its status glyph,
+# cut at a word boundary to 20 characters; the project when it has no name yet.
+pane_display_name() {
+  local title session_name
+  title=$(tmux display -p -t "$1" '#{E:@claude_title_full}')
+  if [[ -z $title || $title == "Claude Code" ]]; then
+    session_name=$(tmux display -p -t "$1" '#{session_name}')
+    echo "${session_name##*/}"
+    return
+  fi
+  if (( ${#title} > 20 )); then
+    title=${title:0:21}
+    [[ $title == *" "* ]] && title=${title% *}
+  fi
+  echo "${title:0:20}"
+}
+
+if [[ ${1:-} == --peek ]]; then
+  target=$(next_pane_after "${2:-}") && pane_display_name "$target"
+  exit 0
+fi
+
+current_pane=$1
+client_name=$2
+if ! target=$(next_pane_after "$current_pane"); then
+  tmux display-message -c "$client_name" "No Claude is waiting or finished"
+  exit 0
+fi
+"$script_dir/claude-focus-pane" "$target" "$client_name"

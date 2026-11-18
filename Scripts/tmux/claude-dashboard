@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Alt+g: every Claude Code pane across all sessions, the ones that need you first.
+# Row: state icon (red waiting, yellow working, green done, dim idle), state and how
+# long, project and window number, Claude's task title, then the last prompt.
+# Preview = the pane's screen.
+# Enter jumps to the pane, ctrl-x kills it (y/N), ctrl-r refreshes, Alt+g again closes it (toggle).
+set -uo pipefail
+
+script_path=$(readlink -f "$0")
+script_dir=$(dirname "$script_path")
+source "$script_dir/fzf-style.sh"
+
+claude_icon=$("$script_dir/window-icon" claude)
+icon_spacer=$' '
+field_separator=$'\x1f'
+
+human_age() {
+  local seconds=$1
+  if (( seconds < 60 )); then echo "${seconds}s"
+  elif (( seconds < 3600 )); then echo "$(( seconds / 60 ))m"
+  elif (( seconds < 86400 )); then echo "$(( seconds / 3600 ))h"
+  else echo "$(( seconds / 86400 ))d"; fi
+}
+
+claude_panes_by_urgency() {
+  tmux list-panes -a -F "#{pane_current_command}${field_separator}#{@claude_state}${field_separator}#{@claude_state_since}${field_separator}#{pane_id}${field_separator}#{session_name}${field_separator}#{window_index}${field_separator}#{@claude_task}${field_separator}#{E:@claude_title_full}" |
+    awk -F "$field_separator" -v OFS="$field_separator" '
+      $1 != "claude" && $2 == "" { next }
+      {
+        urgency = ($2 == "waiting") ? 0 : ($2 == "working") ? 1 : ($2 == "done") ? 2 : 3
+        since = ($3 == "") ? 0 : $3
+        order = (urgency == 0) ? since : -since
+        print urgency, order, $2, since, $4, $5, $6, $7, $8
+      }' |
+    sort -t "$field_separator" -k1,1n -k2,2n | cut -d "$field_separator" -f3-
+}
+
+list_claude_panes() {
+  local reset=$'\033[0m' bold=$'\033[1m'
+  local dim red yellow green text
+  dim=$(ansi_fg "$(theme_hex overlay_1)"); text=$(ansi_fg "$(theme_hex fg)")
+  red=$(ansi_fg "$(theme_hex red)"); yellow=$(ansi_fg "$(theme_hex yellow)"); green=$(ansi_fg "$(theme_hex green)")
+  local now; now=$(date +%s)
+
+  local state since pane_id session_name window_index task title colour label age project description
+  while IFS=$field_separator read -r state since pane_id session_name window_index task title; do
+    case $state in
+      waiting) colour=$red; label="waiting" ;;
+      working) colour=$yellow; label="working" ;;
+      done) colour=$green; label="done" ;;
+      *) colour=$dim; label="idle" ;;
+    esac
+    age=""
+    (( since > 0 )) && age=$(human_age $(( now - since )))
+    project=${session_name##*/}
+    [[ -n $project ]] || project=$session_name
+    if [[ -n $title && $title != "Claude Code" ]]; then
+      description="$text$title$reset${task:+  $dim$task}"
+    else
+      description="$text${task:-$dim(no prompt yet)}"
+    fi
+    printf '%s\t%s%s%s%-8s %4s%s  %s%-22.22s%s %s#%-2s%s %s%s\n' \
+      "$pane_id" "$colour" "$claude_icon" "$icon_spacer" "$label" "$age" "$reset" \
+      "$bold$text" "$project" "$reset" "$dim" "$window_index" "$reset" \
+      "$description" "$reset"
+  done < <(claude_panes_by_urgency)
+}
+
+preview_pane() {
+  tmux capture-pane -ep -t "$1" 2>/dev/null | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | tail -n "${FZF_PREVIEW_LINES:-40}"
+}
+
+kill_claude_pane() {
+  local pane_id=$1 pane_details session_name window_index title notification_id answer
+  pane_details=$(tmux display -p -t "$pane_id" "#{session_name}${field_separator}#{window_index}${field_separator}#{E:@claude_title_full}${field_separator}#{@claude_notification_id}" 2>/dev/null) || return 0
+  IFS=$field_separator read -r session_name window_index title notification_id <<< "$pane_details"
+  [[ $title == "Claude Code" ]] && title=""
+  printf '\n  Kill Claude in %s #%s%s? [y/N] ' "${session_name##*/}" "$window_index" "${title:+ ($title)}"
+  read -rsn1 answer
+  [[ $answer == y || $answer == Y ]] || return 0
+  if [[ -n $notification_id ]]; then
+    gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+      --method org.freedesktop.Notifications.CloseNotification "$notification_id" >/dev/null 2>&1
+  fi
+  tmux kill-pane -t "$pane_id"
+}
+
+open_dashboard() {
+  local origin_client
+  origin_client=$(tmux show -gv @picker_origin_client 2>/dev/null)
+  local rows; rows=$(list_claude_panes)
+  if [[ -z $rows ]]; then
+    tmux display-message ${origin_client:+-c "$origin_client"} "No Claude Code sessions are running"
+    return 0
+  fi
+
+  build_fzf_style
+  local choice
+  choice=$(printf '%s\n' "$rows" | FZF_DEFAULT_OPTS="" fzf "${FZF_STYLE[@]}" \
+    --ansi --delimiter=$'\t' --with-nth=2.. --no-sort \
+    --header='enter jump · ctrl-x kill · ctrl-r refresh · alt-g close' \
+    --preview="'$script_path' --preview {1}" \
+    --preview-window='down,60%,border-top' \
+    --bind="ctrl-x:execute('$script_path' --kill {1})+reload('$script_path' --list)" \
+    --bind="ctrl-r:reload('$script_path' --list)" \
+    --bind='alt-g:abort') || return 0
+
+  local pane_id=${choice%%$'\t'*}
+  [[ -n $pane_id ]] && "$script_dir/claude-focus-pane" "$pane_id" ${origin_client:+"$origin_client"}
+}
+
+case ${1:-} in
+  --list) list_claude_panes ;;
+  --preview) preview_pane "${2:-}" ;;
+  --kill) kill_claude_pane "${2:-}" ;;
+  *) open_dashboard ;;
+esac

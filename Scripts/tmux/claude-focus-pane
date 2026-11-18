@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Shows a pane: switches a tmux client to its session, window and pane.
+# Usage: claude-focus-pane PANE_ID [CLIENT_NAME] [--raise-terminal]
+# Without a client, the most recently active one is used. --raise-terminal also
+# focuses the niri window (kitty) that runs that client, for notification clicks.
+set -uo pipefail
+
+pane_id="" client_name="" raise_terminal=false
+for argument in "$@"; do
+  case $argument in
+    --raise-terminal) raise_terminal=true ;;
+    *) if [[ -z $pane_id ]]; then pane_id=$argument; else client_name=$argument; fi ;;
+  esac
+done
+[[ -n $pane_id ]] || exit 0
+
+tmux display -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 || exit 0
+
+most_recent_client() {
+  tmux list-clients -F '#{client_activity} #{client_name}' | sort -rn | head -1 | cut -d' ' -f2
+}
+[[ -n $client_name ]] || client_name=$(most_recent_client)
+[[ -n $client_name ]] || exit 0
+
+tmux switch-client -c "$client_name" -t "$pane_id" \; select-window -t "$pane_id" \; select-pane -t "$pane_id"
+
+if $raise_terminal; then
+  window_id=$("$(dirname "$(readlink -f "$0")")/niri-window-of-client" "$client_name")
+  [[ -n $window_id ]] && niri msg action focus-window --id "$window_id"
+fi
+exit 0
