@@ -20,6 +20,9 @@ Commands (all quiet; they are bound to keys and status-line jobs):
   badge WINDOW_ID               the status-bar pill text: sessions needing you, outside WINDOW_ID
   ack-window WINDOW_ID          you looked at this window: its finished sessions are seen
   unattached                    TSV of live background sessions no pane shows (dashboard rows)
+  projects                      path<TAB>bucket<TAB>epoch for tmux-leap's `priority` option: projects whose
+                                Claude needs you (0 waiting, 1 finished unseen, 2 working), then any live
+                                session (4), then recently used closed chats (5)
   open SESSION_ID CLIENT        show a background session: its pane, else attach in a tmux window
 
 TIERS for Alt+a, each a cycle; a press moves to the next entry after the pane you are on (wrapping),
@@ -417,6 +420,55 @@ def cmd_unattached():
         print(US.join([entry["sid"], entry["state"], str(entry["since"]), entry["cwd"], entry["name"], "1" if entry["seen"] else "0"]))
 
 
+def recent_chat_directories(limit=60):
+    """cwd -> newest transcript mtime for chats touched within @claude_reopen_days."""
+    days = int(tmux_option("@claude_reopen_days", "3") or 3)
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR", f"{HOME}/.claude")) / "projects"
+    cutoff = time.time() - days * 86400
+    files = []
+    for path in root.glob("*/*.jsonl"):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if mtime >= cutoff:
+            files.append((mtime, path))
+    found = {}
+    for mtime, path in sorted(files, reverse=True)[:limit]:
+        try:
+            head = path.open("rb").read(65536).decode("utf-8", "ignore")
+        except OSError:
+            continue
+        match = re.search(r'"cwd":"([^"]*)"', head)
+        if match and not match.group(1).startswith("/tmp") and match.group(1) not in found:
+            found[match.group(1)] = int(mtime)
+    return found
+
+
+def cmd_projects():
+    entries, store, _ = build()
+    rows = {}
+    def offer(path, bucket, epoch):
+        if path and (path not in rows or (bucket, -epoch) < (rows[path][0], -rows[path][1])):
+            rows[path] = (bucket, epoch)
+    for entry in entries:
+        if entry["kind"] != "bg":
+            continue
+        if entry["state"] == "waiting":
+            bucket = 0
+        elif entry["state"] == "done" and not entry["seen"]:
+            bucket = 1
+        elif entry["state"] == "working":
+            bucket = 2
+        else:
+            bucket = 4
+        offer(entry["cwd"], bucket, entry["since"])
+    for cwd, mtime in recent_chat_directories().items():
+        offer(cwd, 5, mtime)
+    for path, (bucket, epoch) in rows.items():
+        print(f"{path}\t{bucket}\t{epoch}")
+
+
 def cmd_open(sid, client):
     entries, store, pane_list = build()
     for entry in entries:
@@ -441,6 +493,8 @@ def main(argv):
         cmd_ack_window(argv[2])
     elif command == "unattached":
         cmd_unattached()
+    elif command == "projects":
+        cmd_projects()
     elif command == "dump":
         entries, _, _ = build()
         for e in sorted(entries, key=lambda e: (tier_of(e), order_key(e))):
