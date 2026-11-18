@@ -30,7 +30,8 @@ and falls through to the next tier when its cycle has nowhere else to go:
   1 needs you   waiting/blocked first, then finished-and-unseen; longest-waiting first
   2 idle        open and ready, in session/window order
   3 working     still running; panes first, then sessions no pane shows
-  4 closed      a live background session no pane shows, else the newest closed chat (claude-chats)
+  4 parked      a live background session no pane shows, opened in window 3's `claude agents` viewer
+Claude only ever lives in window 3 (plus panes you start yourself): Alt+a never opens extra windows or panes.
 """
 import json
 import os
@@ -267,6 +268,7 @@ def sync(force=False):
     entries, store, pane_list = build()
     save_store(store)
     write_pane_options(entries, pane_list)
+    write_priority_cache(entries)
 
 
 def mark_seen(store, sid):
@@ -306,20 +308,122 @@ def session_name_for(cwd):
     return name.replace(".", "_")
 
 
+AGENTS_COMMAND = "zsh -ic 'claude agents --cwd .'"   # same as the Alt+3 bind
+VIEWER_TITLE = "claude agents"
+
+
+def pane_title_of(pane_id):
+    return clean_title(tmux("display", "-p", "-t", pane_id, "#{pane_title}").strip())
+
+
+def wait_for(predicate, seconds):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.15)
+    return predicate()
+
+
+def agents_viewer_pane(session, cwd):
+    """The pane of window 3 in SESSION running `claude agents` (made like Alt+3 makes it); creates the
+    session/window only when missing, never any other window or pane."""
+    if subprocess.run(["tmux", "has-session", "-t", f"={session}"], capture_output=True).returncode != 0:
+        tmux("new-session", "-d", "-s", session, "-c", cwd)
+    if "3" not in tmux("list-windows", "-t", f"={session}", "-F", "#{window_index}").split():
+        tmux("new-window", "-t", f"={session}:3", "-n", "claude", "-c", cwd, AGENTS_COMMAND)
+    target = f"={session}:3"
+    panes_here = [l.split(" ", 2) for l in tmux("list-panes", "-t", target, "-F", "#{pane_id} #{pane_current_command} #{pane_title}").splitlines()]
+    for pane_id, command, _ in panes_here:
+        if command == "claude":
+            return pane_id
+    if panes_here:  # window 3 is a bare shell: start the viewer in it
+        tmux("send-keys", "-t", panes_here[0][0], "claude agents --cwd .", "Enter")
+        wait_for(lambda: tmux("display", "-p", "-t", panes_here[0][0], "#{pane_current_command}").strip() == "claude", 8)
+        return panes_here[0][0]
+    return None
+
+
+def debug(message):
+    if os.environ.get("CLAUDE_SESSIONS_DEBUG"):
+        print(message, file=sys.stderr)
+
+
+def screen_has(pane_id, text):
+    return text in tmux("capture-pane", "-p", "-t", pane_id)
+
+
+def show_in_viewer(pane_id, name):
+    """Drive the `claude agents` viewer to a session: back to its list (Left), find the name, open it.
+
+    Safety first, because Enter in this TUI can CREATE a session from whatever is in its prompt:
+    only act when the prompt is verifiably empty (never touch a draft you are typing), type only
+    after the find box is open, and press Enter only when the screen shows exactly `n:<name>` and an
+    "enter to open" hint. On any doubt do nothing."""
+    if not wait_for(lambda: pane_title_of(pane_id) not in ("", "zsh"), 8):
+        return False
+    if pane_title_of(pane_id) == name:
+        return True
+    for _ in range(2):  # attached to some other session: Left returns to the list
+        if pane_title_of(pane_id) == VIEWER_TITLE:
+            break
+        tmux("send-keys", "-t", pane_id, "Left")
+        wait_for(lambda: pane_title_of(pane_id) == VIEWER_TITLE, 2)
+    if pane_title_of(pane_id) != VIEWER_TITLE:
+        debug("viewer is not on its list; not touching it")
+        return False
+    wait_for(lambda: screen_has(pane_id, "describe a task for a new session"), 4)  # list drawn, prompt empty
+    time.sleep(0.8)  # a freshly started viewer swallows keys for a moment after drawing
+    if not screen_has(pane_id, "describe a task for a new session") or screen_has(pane_id, "\u2315"):
+        debug("prompt has a draft or a find box is open; leaving it alone")
+        return False
+    tmux("send-keys", "-t", pane_id, "C-f")
+    if not wait_for(lambda: screen_has(pane_id, "\u2315 n:"), 3):
+        debug("find box never appeared")
+        return False
+    tmux("send-keys", "-t", pane_id, "-l", name)
+    if not wait_for(lambda: screen_has(pane_id, f"n:{name}"), 3):
+        debug(f"typed name never shown; screen:\n{tmux('capture-pane', '-p', '-t', pane_id)[-400:]}")
+        return False
+    time.sleep(0.6)                                                      # let the filter apply
+    screen = tmux("capture-pane", "-p", "-t", pane_id)
+    if "enter to open" not in screen or "enter to create" in screen:
+        debug("no 'enter to open' hint; not pressing Enter")
+        return False
+    tmux("send-keys", "-t", pane_id, "Enter")
+    opened = wait_for(lambda: pane_title_of(pane_id) == name, 5)
+    if not opened:
+        debug(f"enter did not open {name!r}; title={pane_title_of(pane_id)!r}")
+    return opened
+
+
+def viewer_exists(entry):
+    """True when this background session's project already has a tmux session with a window 3."""
+    cwd = entry["cwd"] if os.path.isdir(entry["cwd"]) else HOME
+    session = session_name_for(cwd)
+    if subprocess.run(["tmux", "has-session", "-t", f"={session}"], capture_output=True).returncode != 0:
+        return False
+    return "3" in tmux("list-windows", "-t", f"={session}", "-F", "#{window_index}").split()
+
+
+def reachable(entry, tier):
+    """Only a session that needs you may cause a tmux session / window 3 to be created; everything else
+    must already have its place, so Alt+a never litters."""
+    return entry["pane"] is not None or tier == 1 or viewer_exists(entry)
+
+
 def open_entry(entry, client, store=None):
-    """Show an entry: focus its pane, or attach the background session in a tmux window."""
+    """Show an entry: focus its pane, or open the background session in window 3's agents viewer."""
     if entry["pane"] is not None:
         run([str(SCRIPT_DIR / "claude-focus-pane"), entry["pane"]["id"], client])
         return
     cwd = entry["cwd"] if os.path.isdir(entry["cwd"]) else HOME
-    name = session_name_for(cwd)
-    command = f"zsh -ic 'claude attach {entry['short']}; exec zsh'"
-    if subprocess.run(["tmux", "has-session", "-t", f"={name}"], capture_output=True).returncode == 0:
-        tmux("new-window", "-t", f"={name}:", "-c", cwd, "-n", "claude", command)
-    else:
-        tmux("new-session", "-d", "-s", name, "-c", cwd, "-n", "claude", command)
-    switch = ["switch-client"] + (["-c", client] if client and client != "none" else []) + ["-t", f"={name}"]
+    session = session_name_for(cwd)
+    pane_id = agents_viewer_pane(session, cwd)
+    switch = ["switch-client"] + (["-c", client] if client and client != "none" else []) + ["-t", f"={session}:3"]
     tmux(*switch)
+    if pane_id:
+        show_in_viewer(pane_id, entry["name"])
 
 
 def cmd_next(current, client):
@@ -327,7 +431,7 @@ def cmd_next(current, client):
     save_store(store)
     write_pane_options(entries, pane_list)
     for tier in (1, 2, 3):
-        candidates = after_current(ordered_tier(entries, tier), current)
+        candidates = [c for c in after_current(ordered_tier(entries, tier), current) if reachable(c, tier)]
         if candidates:
             target = candidates[0]
             if target["kind"] == "bg":
@@ -335,19 +439,13 @@ def cmd_next(current, client):
                 save_store(store)
             open_entry(target, client)
             return
-    detached = [e for e in ordered_tier(entries, 4)]
+    detached = [e for e in ordered_tier(entries, 4) if reachable(e, 4)]
     if detached:
         target = sorted(detached, key=lambda e: -e["since"])[0]
         mark_seen(store, target["sid"])
         save_store(store)
         open_entry(target, client)
         return
-    if tmux_option("@claude_next_reopen") != "off":
-        row = run([str(SCRIPT_DIR / "claude-chats"), "closed"]).splitlines()[:1]
-        if row:
-            fields = row[0].split(US)
-            if len(fields) > 1:
-                run([str(SCRIPT_DIR / "claude-chats"), "reopen", fields[1], client])
 
 
 def cmd_peek(current):
@@ -360,7 +458,7 @@ def cmd_peek(current):
 def cmd_badge(window_id):
     """Status-bar pill. Cheap on purpose: runs every status refresh; asks for a sync when stale."""
     store = load_store()
-    if time.time() - store.get("synced_at", 0) > 4:
+    if time.time() - store.get("synced_at", 0) > 10:
         subprocess.Popen([sys.argv[0], "sync", "--force"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
     pane_list = panes()
@@ -445,8 +543,10 @@ def recent_chat_directories(limit=60):
     return found
 
 
-def cmd_projects():
-    entries, store, _ = build()
+PRIORITY_CACHE = Path(os.environ.get("XDG_CACHE_HOME", f"{HOME}/.cache")) / "claude-priority.tsv"
+
+
+def projects_rows(entries):
     rows = {}
     def offer(path, bucket, epoch):
         if path and (path not in rows or (bucket, -epoch) < (rows[path][0], -rows[path][1])):
@@ -465,8 +565,20 @@ def cmd_projects():
         offer(entry["cwd"], bucket, entry["since"])
     for cwd, mtime in recent_chat_directories().items():
         offer(cwd, 5, mtime)
-    for path, (bucket, epoch) in rows.items():
-        print(f"{path}\t{bucket}\t{epoch}")
+    return [f"{path}\t{bucket}\t{epoch}" for path, (bucket, epoch) in rows.items()]
+
+
+def write_priority_cache(entries):
+    """tmux-leap's `priority` option just `cat`s this, so opening the picker costs nothing."""
+    PRIORITY_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PRIORITY_CACHE.with_suffix(".tmp")
+    tmp.write_text("\n".join(projects_rows(entries)) + "\n")
+    tmp.replace(PRIORITY_CACHE)
+
+
+def cmd_projects():
+    entries, store, _ = build()
+    print("\n".join(projects_rows(entries)))
 
 
 def cmd_open(sid, client):

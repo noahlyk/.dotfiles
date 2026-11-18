@@ -24,7 +24,7 @@
     // Order: open sessions first (Claude waiting, finished, working, then the rest, by activity),
     // merged with projects whose background Claude needs you and recently used chats. Then recents.
     open_first: true,
-    priority: "~/Scripts/tmux/claude-sessions projects",
+    priority: "cat ~/.cache/claude-priority.tsv",
     // Small status icon next to any project with an open tmux session:
     // Claude Code running, an editor open, or just a busy (non-idle) pane.
     // Open sessions with nothing notable going on still show in white, just
