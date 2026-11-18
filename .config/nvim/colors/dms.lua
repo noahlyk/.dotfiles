@@ -1,7 +1,7 @@
 local present, base46 = pcall(require, "base46")
 if not present or not base46._DMS_SUPPORT then
 	vim.notify(
-		"base46 plugin not found or incorrect, make sure to install AvengeMedia/base46",
+		"base46 plugin not found or incorrect, make sure to install duxlabs-dev/base46",
 		vim.log.levels.ERROR,
 		{ title = "dms integration" }
 	)
@@ -12,7 +12,7 @@ local config_home = vim.env.XDG_CONFIG_HOME
 if config_home == nil or #config_home == 0 then
 	config_home = vim.fs.joinpath(vim.env.HOME, ".config")
 end
-local settings_file_path = vim.fs.joinpath(config_home, "DankMaterialShell", "settings.json")
+local settings_file_path = vim.fs.joinpath(config_home, "dms", "settings.json")
 local settings_file = io.open(settings_file_path, "r")
 if settings_file == nil then
 	vim.notify(
@@ -86,9 +86,9 @@ end
 
 if not base46.theme_tables[theme_name] or base46.theme_tables[theme_name].type ~= vim.o.background then
 	local builtin = vim.deepcopy(assert(base46.get_builtin_theme(theme_base)))
-	local harmonized = base46.theme_harmonize(builtin, "#935d83", harmony)
+	local harmonized = base46.theme_harmonize(builtin, "#342c52", harmony)
 	if settings.matugenTemplateNeovimSetBackground ~= false then
-		harmonized = base46.theme_set_bg(harmonized, "#1b1017")
+		harmonized = base46.theme_set_bg(harmonized, "#0f0e12")
 	end
 
 	base46.theme_tables[theme_name] = harmonized

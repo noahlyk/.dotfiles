@@ -21,7 +21,7 @@
         // crisp-config::bootstrap_if_missing(). Blank = crisp-links won't
         // route a physical mic into crisp-vocals until this is set (use
         // `crisp-links mic <node-name>|--auto|--list`).
-        mic_node_name: "alsa_input.usb-Native_Instruments_Komplete_Audio_1_0000607B-00.analog-stereo",
+        mic_node_name: "alsa_input.usb-Native_Instruments_Komplete_Audio_1_0000607B-00.iec958-stereo",
 
         // Node name patterns (substring match) that monitor taps (see
         // `linking.monitor_through_default_output` below, and

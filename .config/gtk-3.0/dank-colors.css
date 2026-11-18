@@ -8,38 +8,34 @@
 /* via thairanaru on GitHub: */
 
 /* Destructive colors are basically error colors */
-@define-color destructive_bg_color #ffb4ab;
-@define-color destructive_fg_color #690005;
-/* Follow material spec */
-@define-color error_bg_color #ffb4ab;
-@define-color error_fg_color #690005;
-/* Follow material spec (also I think looks nicer) */
-@define-color accent_fg_color #5e0051;
-@define-color accent_bg_color #ffade6;
-/* Use surface instead of background */
-@define-color window_bg_color #1b1017;
-@define-color window_fg_color #f2dde7;
-/* Make it more similar to Adwaita */
-@define-color view_bg_color #1b1017;
-@define-color view_fg_color #f2dde7;
-@define-color headerbar_bg_color #1b1017;
-@define-color headerbar_fg_color #f2dde7;
-@define-color sidebar_bg_color #281c24;
-@define-color sidebar_fg_color #f2dde7;
-/* There is only like one application I know that uses this, and there isn't a good way to get
-a color between surface and surface container so I think just giving this surface is a good enough fallback*/
-@define-color secondary_sidebar_bg_color #1b1017;
-@define-color secondary_sidebar_fg_color #f2dde7;
-@define-color card_bg_color #281c24;
-@define-color card_fg_color #f2dde7;
-@define-color overview_bg_color #281c24;
-@define-color overview_fg_color #f2dde7;
-@define-color popover_bg_color #281c24;
-@define-color popover_fg_color #f2dde7;
-@define-color dialog_bg_color #1b1017;
-@define-color dialog_fg_color #f2dde7;
+@define-color destructive_bg_color #f97386;
+@define-color destructive_fg_color #490013;
+@define-color error_bg_color #f97386;
+@define-color error_fg_color #490013;
+@define-color accent_color #ccbeff;
+@define-color accent_fg_color #443185;
+@define-color accent_bg_color #ccbeff;
+/* Bare surface is near black in dark schemes; containers keep Adwaita's view < window < sidebar order */
+@define-color window_bg_color #1a191f;
+@define-color window_fg_color #e9e3ef;
+@define-color view_bg_color #141318;
+@define-color view_fg_color #e9e3ef;
+@define-color headerbar_bg_color #1a191f;
+@define-color headerbar_fg_color #e9e3ef;
+@define-color sidebar_bg_color #201e26;
+@define-color sidebar_fg_color #e9e3ef;
+@define-color secondary_sidebar_bg_color #1a191f;
+@define-color secondary_sidebar_fg_color #e9e3ef;
+@define-color card_bg_color #201e26;
+@define-color card_fg_color #e9e3ef;
+@define-color overview_bg_color #201e26;
+@define-color overview_fg_color #e9e3ef;
+@define-color popover_bg_color #201e26;
+@define-color popover_fg_color #e9e3ef;
+@define-color dialog_bg_color #1a191f;
+@define-color dialog_fg_color #e9e3ef;
 
-/* Backdrop/unfocused states - prevents white flash on window unfocus */
+/* Without these, windows flash white on unfocus */
 @define-color headerbar_backdrop_color @window_bg_color;
 @define-color sidebar_backdrop_color @sidebar_bg_color;
 @define-color theme_unfocused_fg_color @window_fg_color;
@@ -48,5 +44,13 @@ a color between surface and surface container so I think just giving this surfac
 @define-color theme_unfocused_base_color @window_bg_color;
 @define-color theme_unfocused_selected_bg_color @accent_bg_color;
 @define-color theme_unfocused_selected_fg_color @accent_fg_color;
+
+/* Adwaita's selected sidebar row is a neutral grey */
+.navigation-sidebar row:selected,
+.navigation-sidebar child:selected,
+.navigation-sidebar flowboxchild:selected {
+  background-color: #5f2652;
+  color: #f3a8db;
+}
 
 /* END DMS OVERRIDE */

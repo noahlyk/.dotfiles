@@ -1,12 +1,13 @@
 {
-    "#": "#",
-    "PHRUP": "{PLOVER:LOOKUP}",
-
-    "SPW": "{:back}",
-    "PW-FP": "{:back}",
-    "SWA*": "{:swap}",
-    "R*E": "{:redo}",
-    "*RP": "{:undo_word}",
-
-    "KWRA*UL": "yall"
+  "PHRUP": "{PLOVER:LOOKUP}",
+  "SPW": "{:back}",
+  "PW-FP": "{:back}",
+  "SWA*": "{:swap}",
+  "R*E": "{:redo}",
+  "*RP": "{:undo_word}",
+  "KWRA*UL": "yall",
+  "#/TPAOEUZ": "Faez",
+  "#/TPAEZ": "Faez",
+  "#/HRAE/+SEU": "Laci",
+  "#/HRAE/+S*EU": "Laci"
 }

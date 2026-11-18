@@ -63,3 +63,14 @@ __pycache__/
 
 # Disabled copies of the plover-lapwing plugin dictionaries (regenerable)
 .config/keymux/steno/disabled_lapwing/
+
+# DMS: nested plugin git clones and version/first-launch marker files
+.config/dms/plugins/.repos/
+.config/dms/.changelog-*
+.config/dms/.firstlaunch
+.config/dms/plugins/activateLinux/
+.config/dms/plugins/extendedNetworkToggle/
+
+# keymux generated solver binary; DMS back-compat symlink
+.config/keymux/steno/lyk/05-lyk-solver.bin
+.config/DankMaterialShell
