@@ -5,6 +5,26 @@
 #![enable(implicit_some)]
 
 (
+    // Look: fzf coloured from the tmux theme, with a key-hint header.
+    theme: true,
+    header: true,
+
+    // Preview of projects without a session: git status and a folder listing.
+    preview_info: true,
+
+    // Fit the path column to the popup width.
+    auto_path_width: true,
+
+    // Working Claudes get their own yellow icon (waiting is red).
+    claude_working_icon: true,
+
+    // ctrl-o opens the project and starts Claude in it.
+    launch: "claude",
+
+    // Order: open sessions first (Claude waiting, finished, working, then the rest, by activity),
+    // merged with projects whose background Claude needs you and recently used chats. Then recents.
+    open_first: true,
+    priority: "~/Scripts/tmux/claude-sessions projects",
     // Small status icon next to any project with an open tmux session:
     // Claude Code running, an editor open, or just a busy (non-idle) pane.
     // Open sessions with nothing notable going on still show in white, just
