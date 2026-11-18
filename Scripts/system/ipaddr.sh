@@ -42,5 +42,5 @@ done < <(ip link show 2>>/tmp/ipaddr.sh.log | grep -E '^[0-9]+: ' | awk '{print 
 # Join tooltip_lines with \r
 tooltip=$(IFS=$'\r'; echo "${tooltip_lines[*]}")
 
-# Output JSON for Waybar
+# Output JSON (was a Waybar module; kept for ad-hoc use)
 jq -nc --arg text "$main_text" --arg tooltip "$tooltip" '{ipv4: $text, tooltip: $tooltip}' 2>>/tmp/ipaddr.sh.log

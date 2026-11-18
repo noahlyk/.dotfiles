@@ -1,9 +1,0 @@
-{
-    "hyprland/workspaces": {
-        "disable-scroll": true,
-        "all-outputs": true,
-        "on-click": "activate",
-        "format": "{icon}",
-        "sort-by-number": true,
-    },
-}

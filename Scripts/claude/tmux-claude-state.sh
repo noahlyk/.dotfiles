@@ -7,6 +7,8 @@ set -uo pipefail
 
 MAP_FILE="/home/fib/.claude/hooks/claude-pane-map.tsv"
 DEBUG_LOG="/home/fib/.claude/hooks/tmux-claude-state.debug.log"
+# keep the diagnostic log from growing without bound
+[ "$(stat -c %s "$DEBUG_LOG" 2>/dev/null || echo 0)" -gt 262144 ] && : > "$DEBUG_LOG"
 
 payload=$(cat)
 event=$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null) || event=""
