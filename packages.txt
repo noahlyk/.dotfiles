@@ -286,4 +286,5 @@ zip
 zram-generator
 zsh
 zsh-autosuggestions
+zsh-completions
 zsh-syntax-highlighting

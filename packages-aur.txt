@@ -12,6 +12,7 @@ droidcam
 droidcam-obs-plugin
 dropbox-cli
 dsearch-bin
+fzf-tab-git
 gallery-dl
 gdown
 google-breakpad
@@ -27,6 +28,7 @@ nginx-mod-fancyindex
 nginx-mod-lua
 obs-wayland-hotkeys-git
 opencode-bin
+pay-respects
 pipewire-crisp-vocals
 plover
 python-obsws
@@ -59,3 +61,4 @@ xpadneo-dkms
 xwayland-satellite-git
 yt-transcriber
 zsh-theme-powerlevel10k-bin-git
+zsh-you-should-use

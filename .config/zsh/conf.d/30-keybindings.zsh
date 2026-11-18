@@ -40,3 +40,14 @@ function zle-keymap-select {
 zle -N zle-keymap-select
 echo -ne '\e[6 q'  # beam cursor on startup (insert mode)
 
+
+# Vi text objects: ci" da( yi' vi{ ... Built into zsh, no plugin. (No surround: with KEYTIMEOUT=1
+# a two-key ds/cs/ys would time out between keys.)
+autoload -Uz select-bracketed select-quoted
+zle -N select-quoted
+zle -N select-bracketed
+for _m in visual viopp; do
+    for _c in {a,i}{\',\",\`}; do bindkey -M $_m $_c select-quoted; done
+    for _c in {a,i}${(s..)^:-'()[]{}<>bB'}; do bindkey -M $_m $_c select-bracketed; done
+done
+unset _m _c
