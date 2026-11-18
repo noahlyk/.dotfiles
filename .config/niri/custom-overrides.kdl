@@ -96,3 +96,11 @@ window-rule {
     geometry-corner-radius 0
     open-on-workspace "mon1-1"
 }
+
+// ---- Alt+Tab ---------------------------------------------------------------
+// niri's recent-windows switcher owns Alt+Tab by default; turn it off so Alt+Tab
+// reaches tmux (previous session, see tmux.conf). Lives here, not in dms/alttab.kdl,
+// because DMS regenerates that file.
+recent-windows {
+    off
+}
