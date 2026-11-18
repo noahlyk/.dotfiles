@@ -8,6 +8,7 @@
 #   4. closed      a recent chat whose project has no Claude open: reopen its tmux session
 #                  and `claude --resume` it, exactly where it left off (see claude-chats)
 #
+# Silent on purpose: no status messages, you just land somewhere (or nowhere when there is nothing).
 # Within a cycle, pressing again moves to the next pane after the one you are on and wraps round;
 # several chats in one session are separate stops. Two chats in the same pane (/resume inside one
 # claude) are invisible from outside tmux, so those are not told apart.
@@ -73,26 +74,16 @@ fi
 current_pane=$1
 client_name=$2
 
-announce() { tmux display-message -c "$client_name" "$1"; }
-
 for tier in 1 2 3; do
   target=$(cycle_of_tier "$tier" "$current_pane" | head -1)
   [[ -n $target ]] || continue
   "$script_dir/claude-focus-pane" "$target" "$client_name"
-  case $tier in
-    2) announce "Alt+a · idle chat: $(pane_display_name "$target")" ;;
-    3) announce "Alt+a · still working: $(pane_display_name "$target")" ;;
-  esac
   exit 0
 done
 
 # Nothing else is open: bring back the most recent closed chat, if reopening is allowed.
 if [[ $(tmux show -gqv @claude_next_reopen) != off ]]; then
-  IFS=$field_separator read -r _ session_id project_dir prompt < <("$script_dir/claude-chats" closed | head -1)
-  if [[ -n ${session_id:-} ]]; then
-    "$script_dir/claude-chats" reopen "$session_id" "$client_name" &&
-      announce "Alt+a · resumed ${project_dir##*/}: ${prompt:0:60}"
-    exit 0
-  fi
+  IFS=$field_separator read -r _ session_id _ < <("$script_dir/claude-chats" closed | head -1)
+  [[ -n ${session_id:-} ]] && "$script_dir/claude-chats" reopen "$session_id" "$client_name"
 fi
-announce "Alt+a · nothing needs you and no recent chat to resume"
+exit 0
