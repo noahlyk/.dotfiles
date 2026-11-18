@@ -50,3 +50,11 @@ extract() {
         *) echo "extract: don't know how to extract '$1'" >&2; return 1 ;;
     esac
 }
+
+# claude: Claude Code has no setting to skip its "do you trust this folder?" dialog, so pre-accept it
+# for the current folder first (Scripts/claude/claude-trust), then run the real thing. Covers the tmux
+# binds and tmux-leap launches too, since they start claude through zsh.
+claude() {
+    "$HOME/Scripts/claude/claude-trust" "$PWD" 2>/dev/null
+    command claude "$@"
+}

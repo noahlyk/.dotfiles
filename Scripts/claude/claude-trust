@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Pre-accepts Claude Code's "do you trust this folder?" dialog for the current directory, the same
+# thing clicking "Yes, I trust this folder" does: sets projects[<root>].hasTrustDialogAccepted in
+# ~/.claude.json, where <root> is the git repo root, else the directory itself (how Claude keys it).
+# No-op when already trusted (so it normally never writes). Called by the `claude` zsh function.
+# Usage: claude-trust [DIR]
+set -uo pipefail
+
+config=${CLAUDE_JSON:-$HOME/.claude.json}
+dir=$(cd "${1:-.}" 2>/dev/null && pwd -P) || exit 0
+root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || root=$dir
+[[ -f $config ]] || exit 0
+
+already=$(jq -r --arg p "$root" '.projects[$p].hasTrustDialogAccepted // false' "$config" 2>/dev/null)
+[[ $already == true ]] && exit 0
+
+# Write a complete copy beside the original and rename over it: never a half-written file.
+tmp=$(mktemp "$config.trust.XXXXXX") || exit 0
+if jq --arg p "$root" '.projects[$p] = ((.projects[$p] // {}) + {hasTrustDialogAccepted: true})' "$config" > "$tmp" 2>/dev/null &&
+   [[ -s $tmp ]]; then
+  chmod --reference="$config" "$tmp" 2>/dev/null
+  mv "$tmp" "$config"
+else
+  rm -f "$tmp"
+fi
