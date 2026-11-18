@@ -83,7 +83,7 @@ while [[ $# -gt 0 ]]; do
           USE_SCOPE=0
           FLATPAK_X11=0
           HUD_MODE="default"   # MangoHud Vulkan layer (plain mode only)
-          "$HOME/Scripts/sober-fps-patch" 2>/dev/null || true
+          "$HOME/Scripts/games/sober-fps-patch" 2>/dev/null || true
           ;;
         how2fish)
           HUD_MODE="default"

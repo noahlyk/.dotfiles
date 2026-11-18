@@ -149,8 +149,8 @@ bindkey -M menuselect 'l' vi-forward-char
 bindkey -M menuselect 'j' vi-down-line-or-history
 
 alias c='qalc'
-alias makepkg-atomic='~/Scripts/makepkg-atomic.sh'
-alias dl='~/.config/niri/scripts/download.sh'
+alias makepkg-atomic='~/Scripts/system/makepkg-atomic.sh'
+alias dl='~/Scripts/niri/download.sh'
 alias sudo='sudo ' # allows aliases with sudo
 alias tm='trash'
 alias ..='cd ..'

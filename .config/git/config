@@ -99,7 +99,7 @@
 
   # Stack sibling feature branches into one straight line on top of dev.
   # Interactive: pick with fzf, reorder, confirm. See --help.
-  linearize = "!~/Scripts/git-linearize.sh"
+  linearize = "!~/Scripts/git/git-linearize.sh"
 [maintenance]
 	repo = /home/fib/Code/noahlyk/keymux
 	repo = /home/fib/.dotfiles
