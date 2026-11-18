@@ -1,0 +1,5 @@
+# Flatpak refs installed by bootstrap.sh (remote: flathub). One per line.
+# Sober (Roblox) + the MangoHud Vulkan layer. The layer branch must match the
+# freedesktop base of Sober's runtime (org.gnome.Platform//51 -> 26.08).
+org.vinegarhq.Sober
+org.freedesktop.Platform.VulkanLayer.MangoHud//26.08

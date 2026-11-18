@@ -50,8 +50,26 @@ while IFS= read -r pkg; do
     fi
 done < packages-aur.txt
 
+# --- Flatpaks ---
+if [[ -f flatpaks.txt ]]; then
+    echo "Installing flatpaks..."
+    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
+    while IFS= read -r ref; do
+        [[ -z "$ref" || "$ref" == \#* ]] && continue
+        if ! flatpak info "$ref" >/dev/null 2>&1; then
+            flatpak install -y flathub "$ref"
+        fi
+    done < flatpaks.txt
+fi
+
 echo "Restowing directories..."
 stow -R .
+
+# Command shims that stow can't own (a tracked ~/.local/bin could make stow fold
+# the whole dir into the repo and swallow uv/pip installs). ~/Scripts is itself
+# a stow-made symlink to Scripts/.
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$HOME/Scripts/games/gamelaunch" "$HOME/.local/bin/gamelaunch"
 
 DOTFILES_SYSTEMD="$(pwd)/.config/systemd"
 

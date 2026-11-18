@@ -28,6 +28,7 @@ USE_NTSYNC=0 # new: --ntsync option
 USE_DLSS=0 # new: --dlss option
 USE_HDR=0 # new: --hdr option
 USE_CROSSHAIR=0 # new: --crosshair option
+CROSSHAIR_OVERLAY=0 # derived: flatpak targets get the overlay window, not the krosshair Vulkan layer
 USE_IMMEDIATE_FLIPS=1
 USE_RT=1
 PIN_IRQS=0
@@ -36,6 +37,9 @@ FLATPAK_APP_ID="" # set by presets whose target is a flatpak app id, not a binar
 FLATPAK_X11=0 # new: --x11/--wayland option (flatpak apps: drop wayland socket, run via XWayland)
 
 GAME_ARGS=()
+SOBER_FPS_PATCH=0     # preset flag: re-force Roblox FramerateCap before a real launch
+SOBER_COPY_MANGOHUD=0 # preset flag: copy host MangoHud.conf into the flatpak sandbox
+PIN_CPUS=""           # taskset CPU list for the game (e.g. 6-11 = one CCD)
 
 PRECONFIG=""
 PRECONFIG_ARGS=()
@@ -78,12 +82,34 @@ while [[ $# -gt 0 ]]; do
           # Native Wayland, no gamescope: X11-in-gamescope-in-niri gave tearing
           # and broken first-person mouse (pointer lock). Native Wayland uses
           # real pointer constraints and presents straight to niri (vsynced).
-          # If chat typing fails here, fall back with:
-          #   --scope --x11 --no-immediate-flips --no-rt   (gamescope keeps the grab)
+          # If chat typing fails here, use the sober-x11 preset instead.
           USE_SCOPE=0
           FLATPAK_X11=0
           HUD_MODE="default"   # MangoHud Vulkan layer (plain mode only)
-          "$HOME/Scripts/games/sober-fps-patch" 2>/dev/null || true
+          SOBER_FPS_PATCH=1
+          SOBER_COPY_MANGOHUD=1
+          USE_CROSSHAIR=1      # becomes the overlay window for flatpak targets (below)
+          # Roblox's render thread is single-core bound and 5900X CCDs are
+          # CPUs 0-5 / 6-11 (SMT off): keep Sober on CCD1, away from CPU 0
+          # (IRQs/desktop) so its thread never hops across the Infinity Fabric.
+          PIN_CPUS="${PIN_CPUS:-6-11}"
+          ;;
+        sober-x11)
+          # Fallback: Sober on XWayland inside nested gamescope. Keep the cursor
+          # grab (Roblox pointer lock breaks without it) but show the cursor
+          # for menus. No immediate flips (tearing when nested), no --rt (no
+          # CAP_SYS_NICE). HUD via gamescope --mangoapp, never the layer too.
+          FLATPAK_APP_ID="org.vinegarhq.Sober"
+          USE_SCOPE=1
+          FLATPAK_X11=1
+          FORCE_GRAB=1
+          HIDE_CURSOR=0
+          USE_IMMEDIATE_FLIPS=0
+          USE_RT=0
+          HUD_MODE="default"
+          SOBER_FPS_PATCH=1
+          USE_CROSSHAIR=1
+          PIN_CPUS="${PIN_CPUS:-6-11}"
           ;;
         how2fish)
           HUD_MODE="default"
@@ -163,6 +189,7 @@ while [[ $# -gt 0 ]]; do
     --hdr) USE_HDR=1 ;;
     --dry) DRY_RUN=1 ;;
     --crosshair) USE_CROSSHAIR=1 ;;
+    --no-crosshair) USE_CROSSHAIR=0 ;;
     --immediate-flips) USE_IMMEDIATE_FLIPS=1 ;;
     --no-immediate-flips) USE_IMMEDIATE_FLIPS=0 ;;
     --rt) USE_RT=1 ;;
@@ -202,7 +229,8 @@ if [[ ${#GAME_ARGS[@]} -eq 0 && -z "$FLATPAK_APP_ID" ]]; then
   echo "  --hdr                Enable HDR output" >&2
   echo "  --refresh-rate=N     Set refresh rate (default: auto-detect from niri)" >&2
   echo "  --hud[=mode]         Enable MangoHud (default/full/minimal)" >&2
-  echo "  --crosshair          Enable custom crosshair overlay" >&2
+  echo "  --crosshair          Enable custom crosshair overlay (flatpak: overlay window; tune with CROSSHAIR_ARGS=\"--size 14 --color 00ff88\")" >&2
+  echo "  --no-crosshair       Disable the crosshair (on by default for sober)" >&2
   echo "  --no-immediate-flips Disable immediate flips (on by default)" >&2
   echo "  --no-rt              Disable realtime scheduling (on by default)" >&2
   echo "  --vkpost             Enable vkpost (sharpening)" >&2
@@ -239,6 +267,8 @@ if [[ -z "$REFRESH_RATE" ]]; then
     REFRESH_RATE="$(sed -E 's/.* @ ([0-9.]+) Hz.*/\1/' <<<"$out")"
   fi
 fi
+# gamescope -r wants a whole number; niri reports e.g. 319.998
+[[ -n "$REFRESH_RATE" ]] && REFRESH_RATE="$(printf '%.0f' "$REFRESH_RATE")"
 
 # environment
 export IS_GAME=1
@@ -287,6 +317,14 @@ if [[ "$USE_SCOPE" -eq 0 ]]; then
   fi
 fi
 
+# Flatpak targets (Sober): the krosshair Vulkan layer crashes Sober's Vulkan 1.4
+# instance, so use Scripts/games/crosshair-overlay instead -- a separate
+# click-through layer-shell window, shown only while the app is focused.
+if [[ -n "$FLATPAK_APP_ID" && "$USE_CROSSHAIR" -eq 1 ]]; then
+  USE_CROSSHAIR=0
+  CROSSHAIR_OVERLAY=1
+fi
+
 # Crosshair overlay config (krosshair Vulkan layer)
 if [[ "$USE_CROSSHAIR" -eq 1 ]]; then
   export KROSSHAIR=1
@@ -328,8 +366,19 @@ if [[ -n "$FLATPAK_APP_ID" ]]; then
   if [[ "$HUD_MODE" != "no_display" && "$USE_SCOPE" -eq 0 ]]; then
     FP_CMD+=(--env=MANGOHUD=1)
   fi
+  # The sandbox can't see ~/.config/MangoHud; its XDG_CONFIG_HOME is
+  # ~/.var/app/<id>/config, so mirror the host config there (else: default HUD).
+  if [[ "$SOBER_COPY_MANGOHUD" -eq 1 && -f "$HOME/.config/MangoHud/MangoHud.conf" ]]; then
+    mkdir -p "$HOME/.var/app/$FLATPAK_APP_ID/config/MangoHud" 2>/dev/null \
+      && cp -f "$HOME/.config/MangoHud/MangoHud.conf" "$HOME/.var/app/$FLATPAK_APP_ID/config/MangoHud/MangoHud.conf" 2>/dev/null \
+      || true
+  fi
   FP_CMD+=("$FLATPAK_APP_ID")
-  GAME_ARGS=("${FP_CMD[@]}")
+  # Forward anything after the app id (e.g. a roblox:// join link from the
+  # desktop entry / browser) to the app; GAME_ARGS[0] is the app id itself.
+  EXTRA_ARGS=("${GAME_ARGS[@]:1}")
+  [[ "${GAME_ARGS[0]:-}" == "$FLATPAK_APP_ID" ]] || EXTRA_ARGS=("${GAME_ARGS[@]}")
+  GAME_ARGS=("${FP_CMD[@]}" "${EXTRA_ARGS[@]}")
 fi
 
 # Low-latency PipeWire audio: request the min quantum already allowed by
@@ -360,6 +409,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "ENABLE_VKPOST=1"
   fi
   [[ "$USE_CROSSHAIR" -eq 1 ]] && echo "KROSSHAIR=1"
+  [[ "$CROSSHAIR_OVERLAY" -eq 1 ]] && echo "crosshair-overlay --app $FLATPAK_APP_ID ${CROSSHAIR_ARGS:-}"
   if [[ "$USE_AUDIO" -eq 1 ]]; then
     echo "PIPEWIRE_LATENCY=16/48000"
     echo "PULSE_LATENCY_MSEC=1"
@@ -396,7 +446,18 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     printf '%q ' "${GAME_ARGS[@]}"
     echo
   fi
+  [[ -n "$PIN_CPUS" ]] && echo "taskset -c $PIN_CPUS"
   exit 0
+fi
+
+# Real launch only (not --dry): Roblox rewrites FramerateCap on exit.
+[[ "$SOBER_FPS_PATCH" -eq 1 ]] && "$HOME/Scripts/games/sober-fps-patch" 2>/dev/null || true
+
+# Crosshair overlay: detached, follows the app's focus, exits when the app
+# closes (or never opens). Skip if one is already running for this app.
+if [[ "$CROSSHAIR_OVERLAY" -eq 1 ]] && ! pgrep -f "crosshair-overlay --app $FLATPAK_APP_ID" >/dev/null; then
+  # shellcheck disable=SC2086
+  setsid -f "$HOME/Scripts/games/crosshair-overlay" --app "$FLATPAK_APP_ID" ${CROSSHAIR_ARGS:-} >/dev/null 2>&1 || true
 fi
 
 # Pin IRQs to CPU 0, game to CPUs 1-11
@@ -440,6 +501,8 @@ if [[ "$USE_SCOPE" -eq 0 ]]; then
   if [[ "$PIN_IRQS" -eq 1 ]]; then
     pin_irqs || true
     PLAIN_CMD=(taskset -c 1-11 "${PLAIN_CMD[@]}")
+  elif [[ -n "$PIN_CPUS" ]]; then
+    PLAIN_CMD=(taskset -c "$PIN_CPUS" "${PLAIN_CMD[@]}")
   fi
   exec setsid -w "${PLAIN_CMD[@]}"
   exit 0
@@ -480,6 +543,8 @@ CMD+=(-- "${GAME_ARGS[@]}")
 if [[ "$PIN_IRQS" -eq 1 ]]; then
   pin_irqs || true
   CMD=(taskset -c 1-11 "${CMD[@]}")
+elif [[ -n "$PIN_CPUS" ]]; then
+  CMD=(taskset -c "$PIN_CPUS" "${CMD[@]}")
 fi
 
 # Run gamescope

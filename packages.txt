@@ -37,12 +37,13 @@ ddcui
 ddcutil
 dfu-util
 dmidecode
-dms-shell
 docker
 docker-compose
 dolphin
 dolphin-plugins
 dosfstools
+dux-gop
+dux-shell
 earlyoom
 efibootmgr
 ethtool
@@ -63,7 +64,6 @@ gamemode
 gamescope
 gdb
 ghostscript
-gimp
 git
 git-crypt
 git-filter-repo
@@ -74,6 +74,7 @@ gnome-font-viewer
 greetd
 grub
 gst-plugin-pipewire
+gtk4-layer-shell
 i2c-tools
 imagemagick
 inotify-tools
@@ -150,6 +151,7 @@ otf-opendyslexic-nerd
 otf-overpass-nerd
 patchelf
 pavucontrol
+perf
 pipewire
 pipewire-alsa
 pipewire-jack
@@ -159,6 +161,7 @@ playerctl
 postgresql
 power-profiles-daemon
 pulsemixer
+python-gobject
 python-pyclip
 qbittorrent-nox
 qpwgraph

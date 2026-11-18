@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""Click-through crosshair for Wayland games (layer-shell overlay, no GPU hooks).
+
+Draws your crosshair-maker crosshair at the centre of the output on the
+OVERLAY layer (above fullscreen windows), shown only while a window with
+--app has focus, and exits once that app has opened and then closed (or if it
+never opens within --timeout seconds). Focus comes from niri's event stream,
+so it costs nothing per frame -- it is a separate surface, not a Vulkan layer,
+which is why it works with Sober where the krosshair layer crashes.
+
+  crosshair-overlay --app org.vinegarhq.Sober [--builtin] [--image mask.png]
+                    [--size 12] [--gap 4] [--thickness 2] [--color RRGGBB[AA]]
+                    [--dot] [--timeout 120]
+
+Shape (default): ~/.config/crosshair-maker/projects/
+  current.png          coloured/static part, drawn exactly as made (1:1, centred)
+  current.dynamic.png  mask of the "dynamic" part; krosshair recolours the game
+                       pixels behind it, which a separate window can't see, so
+                       lit pixels are drawn in a static colour (white by default,
+                       --color to change) with a dark outline
+Both are re-read whenever crosshair-maker rewrites them (hot reload).
+--image FILE / $KROSSHAIR_IMG use one mask only. --builtin draws a simple red
+cross from --size/--gap/--thickness (also the fallback with no files).
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import threading
+
+# gtk4-layer-shell must load before libwayland-client; from Python that means
+# preloading it, so re-exec once with LD_PRELOAD set.
+_LIB = "/usr/lib/libgtk4-layer-shell.so"
+if _LIB not in os.environ.get("LD_PRELOAD", "") and os.path.exists(_LIB):
+    os.environ["LD_PRELOAD"] = (_LIB + ":" + os.environ.get("LD_PRELOAD", "")).rstrip(":")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gio, GLib, GdkPixbuf, Gtk, Gtk4LayerShell  # noqa: E402
+
+PROJECTS = os.path.expanduser("~/.config/crosshair-maker/projects")
+
+
+def parse_color(s):
+    s = s.lstrip("#")
+    if len(s) == 6:
+        s += "ff"
+    return tuple(int(s[i:i + 2], 16) / 255 for i in (0, 2, 4, 6))
+
+
+def _pixels(path):
+    pb = GdkPixbuf.Pixbuf.new_from_file(path)
+    return pb.get_width(), pb.get_height(), pb.get_rowstride(), pb.get_n_channels(), pb.get_pixels(), pb.get_has_alpha()
+
+
+def load_color(path):
+    """RGBA PNG -> (ARGB32 surface, size) or None if fully transparent."""
+    import cairo
+    w, h, rs, n, px, has_a = _pixels(path)
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    stride, buf, lit = surf.get_stride(), surf.get_data(), False
+    for y in range(h):
+        for x in range(w):
+            i = y * rs + x * n
+            r, g, b = px[i], px[i + 1], px[i + 2]
+            a = px[i + 3] if has_a else 255
+            if a:
+                lit = True
+            o = y * stride + x * 4  # little-endian BGRA, premultiplied
+            buf[o], buf[o + 1], buf[o + 2], buf[o + 3] = b * a // 255, g * a // 255, r * a // 255, a
+    surf.mark_dirty()
+    return (surf, w, h) if lit else None
+
+
+def load_mask(path):
+    """White pixels of a crosshair-maker mask PNG -> (A8 surface, w, h) or None if empty."""
+    import cairo
+    w, h, rs, n, px, _ = _pixels(path)
+    surf = cairo.ImageSurface(cairo.FORMAT_A8, w, h)
+    stride, buf, lit = surf.get_stride(), surf.get_data(), False
+    for y in range(h):
+        for x in range(w):
+            v = px[y * rs + x * n]  # red channel = luminance
+            buf[y * stride + x] = v
+            lit = lit or v > 0
+    surf.mark_dirty()
+    return (surf, w, h) if lit else None
+
+
+def load_layers(a):
+    """-> list of ('color'|'mask', surface, w, h); [] means use the builtin cross."""
+    layers = []
+    try:
+        if a.image:
+            m = load_mask(a.image)
+            if m:
+                layers.append(("mask",) + m)
+        elif not a.builtin:
+            for kind, loader, name in (("color", load_color, "current.png"),
+                                       ("mask", load_mask, "current.dynamic.png")):
+                path = os.environ.get("KROSSHAIR_IMG") if kind == "mask" and os.environ.get("KROSSHAIR_IMG") \
+                    else os.path.join(PROJECTS, name)
+                if os.path.isfile(path):
+                    res = loader(path)
+                    if res:
+                        layers.append((kind,) + res)
+    except Exception as e:  # unreadable/odd image (e.g. mid-write): keep what loaded
+        print(f"crosshair-overlay: image load failed: {e}", file=sys.stderr)
+    return layers
+
+
+def layers_size(a, layers):
+    if layers:
+        return max(max(w, h) for _, _, w, h in layers)
+    return a.size * 2 + 2
+
+
+def render(cr, w, h, a, layers):
+    """Pure drawing (no window) so it can be tested offscreen."""
+    r, g, b, al = a.color_rgba
+    if layers:
+        for kind, surf, lw, lh in layers:
+            ox, oy = (w - lw) // 2, (h - lh) // 2   # integer: keep pixels crisp
+            if kind == "color":
+                cr.set_source_surface(surf, ox, oy)
+                cr.paint()
+            else:
+                cr.set_source_rgba(0, 0, 0, 0.75 * al)  # 1px dark outline
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        if dx or dy:
+                            cr.mask_surface(surf, ox + dx, oy + dy)
+                cr.set_source_rgba(r, g, b, al)
+                cr.mask_surface(surf, ox, oy)
+        return
+    cx, cy = w / 2, h / 2
+    for width, rgba in ((a.thickness + 2, (0, 0, 0, 0.75 * al)), (a.thickness, (r, g, b, al))):
+        cr.set_source_rgba(*rgba)
+        cr.set_line_width(width)
+        for x0, y0, x1, y1 in (
+            (cx - a.size, cy, cx - a.gap, cy), (cx + a.gap, cy, cx + a.size, cy),
+            (cx, cy - a.size, cx, cy - a.gap), (cx, cy + a.gap, cx, cy + a.size),
+        ):
+            cr.move_to(x0, y0)
+            cr.line_to(x1, y1)
+            cr.stroke()
+    if a.dot:
+        cr.set_source_rgba(r, g, b, al)
+        cr.arc(cx, cy, max(1.0, a.thickness / 2), 0, 6.2832)
+        cr.fill()
+
+
+class Watcher:
+    """Calls `callback` (debounced, on the GLib loop) when a current.* file changes."""
+
+    def __init__(self, directory, callback, delay_ms=150):
+        self.callback, self.delay, self.pending = callback, delay_ms, 0
+        self.mon = Gio.File.new_for_path(directory).monitor_directory(Gio.FileMonitorFlags.NONE, None)
+        self.mon.connect("changed", self.changed)
+
+    def changed(self, _mon, file, other, _event):
+        names = {f.get_basename() for f in (file, other) if f is not None}
+        if not any(n.startswith("current.") for n in names):
+            return
+        if self.pending:
+            GLib.source_remove(self.pending)
+        self.pending = GLib.timeout_add(self.delay, self.fire)
+
+    def fire(self):
+        self.pending = 0
+        self.callback()
+        return False
+
+
+class State:
+    """Tracks windows from niri events; says whether `app` is focused/open."""
+
+    def __init__(self, app):
+        self.app = app
+        self.apps = {}      # window id -> app_id
+        self.focused = None
+        self.seen = False
+
+    def feed(self, ev):
+        if "WindowsChanged" in ev:
+            self.apps = {w["id"]: w.get("app_id") for w in ev["WindowsChanged"]["windows"]}
+            for w in ev["WindowsChanged"]["windows"]:
+                if w.get("is_focused"):
+                    self.focused = w["id"]
+        elif "WindowOpenedOrChanged" in ev:
+            w = ev["WindowOpenedOrChanged"]["window"]
+            self.apps[w["id"]] = w.get("app_id")
+            if w.get("is_focused"):
+                self.focused = w["id"]
+        elif "WindowClosed" in ev:
+            wid = ev["WindowClosed"]["id"]
+            self.apps.pop(wid, None)
+            if self.focused == wid:
+                self.focused = None
+        elif "WindowFocusChanged" in ev:
+            self.focused = ev["WindowFocusChanged"]["id"]
+        if self.app in self.apps.values():
+            self.seen = True
+
+    @property
+    def visible(self):
+        return self.focused is not None and self.apps.get(self.focused) == self.app
+
+    @property
+    def finished(self):
+        return self.seen and self.app not in self.apps.values()
+
+
+class Overlay(Gtk.Window):
+    def __init__(self, a):
+        super().__init__()
+        self.a = a
+        self.layers = load_layers(a)
+        self.set_decorated(False)
+        self.add_css_class("crosshair-overlay")
+        Gtk4LayerShell.init_for_window(self)
+        Gtk4LayerShell.set_namespace(self, "crosshair-overlay")
+        Gtk4LayerShell.set_layer(self, Gtk4LayerShell.Layer.OVERLAY)
+        Gtk4LayerShell.set_keyboard_mode(self, Gtk4LayerShell.KeyboardMode.NONE)
+        Gtk4LayerShell.set_exclusive_zone(self, -1)  # don't push other surfaces
+        self.area = Gtk.DrawingArea()
+        self.area.set_draw_func(lambda _a, cr, w, h: render(cr, w, h, self.a, self.layers))
+        self.set_child(self.area)
+        self.resize()
+        css = Gtk.CssProvider()
+        css.load_from_string("window.crosshair-overlay { background: transparent; }")
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.connect("realize", self.click_through)
+
+    def resize(self):
+        total = layers_size(self.a, self.layers)
+        self.area.set_content_width(total)
+        self.area.set_content_height(total)
+        self.set_default_size(total, total)
+
+    def reload(self):
+        self.layers = load_layers(self.a)
+        self.resize()
+        self.area.queue_draw()
+        self.click_through()
+
+    def click_through(self, *_):
+        # Empty input region: every click/motion falls through to the game.
+        import cairo
+        surf = self.get_surface()
+        if surf is not None:
+            surf.set_input_region(cairo.Region())
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--app", required=True, help="niri app-id to show over")
+    p.add_argument("--image", help="one crosshair-maker mask PNG (white = drawn); disables hot reload")
+    p.add_argument("--builtin", action="store_true", help="ignore crosshair-maker; draw a simple cross")
+    p.add_argument("--size", type=int, default=12)
+    p.add_argument("--gap", type=int, default=4)
+    p.add_argument("--thickness", type=float, default=2)
+    p.add_argument("--color", default=None, help="dynamic-mask/builtin colour (default: white / red)")
+    p.add_argument("--dot", action="store_true")
+    p.add_argument("--timeout", type=int, default=120,
+                   help="exit if the app never opens within this many seconds")
+    a = p.parse_args()
+    a.color_rgba = None  # set after layers are known (default colour depends on them)
+
+    app = Gtk.Application(application_id="local.crosshair-overlay")
+    state = State(a.app)
+
+    def default_colour(layers):
+        return parse_color(a.color) if a.color else (
+            (1, 1, 1, 1) if any(k == "mask" for k, *_ in layers) else (1, 0.176, 0.176, 1))
+
+    def activate(application):
+        a.color_rgba = (1, 1, 1, 1)
+        win = Overlay(a)
+        a.color_rgba = default_colour(win.layers)
+        win.set_application(application)
+        application.hold()
+
+        if not a.image and not a.builtin and os.path.isdir(PROJECTS):
+            def reload():
+                win.reload()
+                a.color_rgba = default_colour(win.layers)
+                win.area.queue_draw()
+            win.watcher = Watcher(PROJECTS, reload)
+
+        def apply():
+            if state.finished:
+                application.quit()
+                return False
+            if state.visible:
+                win.present()
+            else:
+                win.set_visible(False)
+            return False
+
+        def reader():
+            proc = subprocess.Popen(["niri", "msg", "-j", "event-stream"],
+                                    stdout=subprocess.PIPE, text=True)
+            for line in proc.stdout:
+                try:
+                    state.feed(json.loads(line))
+                except (ValueError, KeyError):
+                    continue
+                GLib.idle_add(apply)
+            GLib.idle_add(application.quit)  # niri went away
+
+        threading.Thread(target=reader, daemon=True).start()
+
+        def timeout():
+            if not state.seen:
+                application.quit()
+            return False
+        GLib.timeout_add_seconds(a.timeout, timeout)
+
+    app.connect("activate", activate)
+    sys.exit(app.run([]))
+
+
+if __name__ == "__main__":
+    main()

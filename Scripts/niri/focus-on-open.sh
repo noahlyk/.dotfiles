@@ -8,7 +8,7 @@
 
 set -u
 
-APPS='^(firefox|org\.keepassxc\.KeePassXC|kitty|com\.obsproject\.Studio)$'
+APPS='^(firefox|org\.keepassxc\.KeePassXC|kitty|com\.obsproject\.Studio|org\.vinegarhq\.Sober)$'
 
 declare -A seen
 

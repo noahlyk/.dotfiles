@@ -1,12 +1,29 @@
 #!/usr/bin/env bash
-# Forces Sober/Roblox's FramerateCap to 9999 (Roblox still hard-caps the
-# engine at ~240 FPS regardless, but this avoids relying on the "0 = uncapped"
-# sentinel). Re-run on every Sober launch since Roblox can rewrite this file
-# on exit and silently reset the cap back to its default.
+# Sets Sober/Roblox's FramerateCap each launch (default 9999 = uncapped; a steady cap like 165 gives
+# even frame pacing under VRR, uncapped swings between ~130 and 240 and feels
+# stuttery). Override with SOBER_FPS_CAP=N (9999 = effectively uncapped; Roblox
+# hard-caps the engine near 240 anyway). Re-run on every Sober launch since
+# Roblox can rewrite this file on exit and silently reset the cap.
 set -euo pipefail
 
 XML="$HOME/.var/app/org.vinegarhq.Sober/data/sober/appData/GlobalBasicSettings_13.xml"
 
 if [[ -f "$XML" ]]; then
-    sed -i -E 's#<int name="FramerateCap">[0-9]+</int>#<int name="FramerateCap">9999</int>#' "$XML"
+    CAP="${SOBER_FPS_CAP:-9999}"
+    [[ "$CAP" =~ ^[0-9]+$ ]] || CAP=9999
+    sed -i -E "s#<int name=\"FramerateCap\">[0-9]+</int>#<int name=\"FramerateCap\">$CAP</int>#" "$XML"
+    # Real fullscreen: Roblox's windowed mode + niri's open-fullscreen rule
+    # (custom-overrides.kdl) gave an in-between state, so keep Roblox's own
+    # setting on fullscreen too. Also rewritten by Roblox on exit.
+    sed -i -E 's#<bool name="Fullscreen">false</bool>#<bool name="Fullscreen">true</bool>#' "$XML"
+    # Manual graphics quality instead of "automatic" (0): auto picks by hardware
+    # and tends to leave shadows/LOD/draw distance high, which costs main-thread
+    # time. 1-10 like the in-game slider; override with SOBER_QUALITY=N
+    # (0 = leave automatic). Applied every launch because Roblox rewrites it.
+    Q="${SOBER_QUALITY:-1}"
+    if [[ "$Q" =~ ^[0-9]+$ && "$Q" -gt 0 ]]; then
+        sed -i -E \
+            -e "s#<int name=\"GraphicsQualityLevel\">[0-9]+</int>#<int name=\"GraphicsQualityLevel\">$Q</int>#" \
+            -e "s#<token name=\"SavedQualityLevel\">[0-9]+</token>#<token name=\"SavedQualityLevel\">$Q</token>#" "$XML"
+    fi
 fi

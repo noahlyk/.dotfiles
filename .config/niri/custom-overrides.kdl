@@ -104,3 +104,16 @@ window-rule {
 recent-windows {
     off
 }
+
+// Sober (native Wayland, no gamescope) has its own app-id, so the vrr/steam
+// rules above never matched it. Same workspace as Steam games, plus variable
+// refresh. open-fullscreen: Roblox's own fullscreen setting maps to an odd
+// in-between state under niri (neither tiled nor fullscreen), so have niri
+// make it a real fullscreen window when it opens. focus-on-open.sh focuses it.
+window-rule {
+    match app-id="^org\\.vinegarhq\\.Sober$"
+    open-on-workspace "mon1-1"
+    open-fullscreen true
+    variable-refresh-rate true
+    geometry-corner-radius 0
+}
