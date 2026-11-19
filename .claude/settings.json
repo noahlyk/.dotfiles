@@ -117,5 +117,8 @@
   "autoCompactEnabled": false,
   "inputNeededNotifEnabled": false,
   "agentPushNotifEnabled": false,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "worktree": {
+    "bgIsolation": "none"
+  }
 }
