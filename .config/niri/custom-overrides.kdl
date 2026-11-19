@@ -117,3 +117,15 @@ window-rule {
     variable-refresh-rate true
     geometry-corner-radius 0
 }
+
+// CS2 runs native Wayland (SDL_VIDEO_DRIVER=wayland in the cs2 preset), so it
+// reports its own app-id "cs2" instead of steam_app_730 and never matched the
+// dms vrr rule (^steam_app_): it opened as a plain tiled window. Same
+// properties as the Sober rule.
+window-rule {
+    match app-id="^cs2$"
+    open-on-workspace "mon1-1"
+    open-fullscreen true
+    variable-refresh-rate true
+    geometry-corner-radius 0
+}
