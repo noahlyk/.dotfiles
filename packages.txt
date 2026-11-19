@@ -20,8 +20,13 @@ blender
 bluez
 bluez-utils
 btop
+cachyos-keyring
+cachyos-mirrorlist
+cachyos-v3-mirrorlist
+cachyos-v4-mirrorlist
 caps
 cava
+claude-code
 cli11
 cliphist
 cmake
@@ -60,6 +65,7 @@ fprintd
 fuse2
 fwupd
 fzf
+gallery-dl
 gamemode
 gamescope
 gdb
@@ -71,6 +77,7 @@ github-cli
 gitleaks
 git-lfs
 gnome-font-viewer
+google-breakpad
 greetd
 grub
 gst-plugin-pipewire
@@ -102,6 +109,8 @@ libpulse
 libqalculate
 libva-nvidia-driver
 libva-utils
+linux-cachyos
+linux-cachyos-headers
 linux-firmware
 linux-zen
 linux-zen-headers
@@ -178,6 +187,8 @@ rsync
 rust-script
 rustup
 satty
+scx-scheds
+scx-tools
 soundfont-fluid
 speedtest-cli
 spirv-headers
@@ -191,6 +202,7 @@ sudo
 sunshine
 system-config-printer
 systemd-resolvconf
+teams-for-linux
 termdown
 tesseract
 tesseract-data-eng
@@ -282,6 +294,7 @@ wtype
 xclip
 xdg-desktop-portal-gnome
 xdg-desktop-portal-gtk
+xpadneo-dkms
 yazi
 zathura
 zathura-pdf-mupdf

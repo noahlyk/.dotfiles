@@ -35,6 +35,42 @@ show_diff() {
 echo "Running custom package script..."
 ./packages-custom.sh
 
+# --- CachyOS repo (x86-64-v3) ---
+# packages.txt includes linux-cachyos, scx-*, and packages that moved off the AUR
+# list because the CachyOS repos ship them, so the repo must exist before the
+# explicit-package install. Mirrors the official cachyos-repo.sh for a v3 (not
+# v4/znver4) CPU, e.g. the Ryzen 9 5900X. Idempotent.
+if /lib/ld-linux-x86-64.so.2 --help | grep -q 'x86-64-v3 (supported, searched)' \
+   && ! grep -q '^\[cachyos-v3\]' /etc/pacman.conf; then
+    echo "Adding CachyOS v3 repos..."
+    sudo pacman-key --recv-keys F3B607488DB35A47 --keyserver keyserver.ubuntu.com
+    sudo pacman-key --lsign-key F3B607488DB35A47
+    cachy_mirror="https://mirror.cachyos.org/repo/x86_64/cachyos"
+    sudo pacman -U --noconfirm \
+        "$cachy_mirror/cachyos-keyring-20240331-1-any.pkg.tar.zst" \
+        "$cachy_mirror/cachyos-mirrorlist-27-1-any.pkg.tar.zst" \
+        "$cachy_mirror/cachyos-v3-mirrorlist-27-1-any.pkg.tar.zst" \
+        "$cachy_mirror/cachyos-v4-mirrorlist-27-1-any.pkg.tar.zst" \
+        "$cachy_mirror/pacman-7.1.0.r9.g54d9411-6-x86_64.pkg.tar.zst"
+    # Insert the four repo sections above [core] (the order the official script uses).
+    sudo cp /etc/pacman.conf /etc/pacman.conf.pre-cachyos
+    sudo awk '
+        /^\[core\]$/ && !done {
+            print "[cachyos-v3]\nInclude = /etc/pacman.d/cachyos-v3-mirrorlist\n"
+            print "[cachyos-core-v3]\nInclude = /etc/pacman.d/cachyos-v3-mirrorlist\n"
+            print "[cachyos-extra-v3]\nInclude = /etc/pacman.d/cachyos-v3-mirrorlist\n"
+            print "[cachyos]\nInclude = /etc/pacman.d/cachyos-mirrorlist\n"
+            done = 1
+        }
+        { print }' /etc/pacman.conf.pre-cachyos | sudo tee /etc/pacman.conf >/dev/null
+    sudo pacman -Syu --noconfirm
+fi
+
+# --- scx scheduler (sched_ext): scx_lavd in Gaming mode, run by scx_loader ---
+# The scx_loader.service unit itself is enabled via .config/systemd/system/enabled.list.
+sudo mkdir -p /etc/scx_loader
+printf 'default_sched = "scx_lavd"\ndefault_mode = "Gaming"\n' | sudo tee /etc/scx_loader/config.toml >/dev/null
+
 # --- Explicit packages ---
 echo "Installing explicit pacman packages..."
 mapfile -t missing_pkgs < <(comm -23 <(sort packages.txt) <(pacman -Qq | sort))

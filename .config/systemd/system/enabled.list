@@ -24,6 +24,7 @@ qbittorrent-vpn-netns.service
 qbittorrent-vpn.service
 reflector.timer
 remote-fs.target
+scx_loader.service
 sshd.service
 systemd-resolved-monitor.socket
 systemd-resolved.service

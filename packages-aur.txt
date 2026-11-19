@@ -3,7 +3,6 @@ auto_sober
 bedrock-on-linux-bin
 cachyos-ananicy-rules-git
 chameleos
-claude-code
 clipboard-sync
 codename-goose-bin
 crosshair-maker
@@ -12,9 +11,7 @@ droidcam-obs-plugin
 dropbox-cli
 dsearch-bin
 fzf-tab-git
-gallery-dl
 gdown
-google-breakpad
 greetd-dms-greeter-bin
 icu76
 inkscape-bin
@@ -42,7 +39,6 @@ solidcraft-bin
 steamcmd
 stripe-cli-bin
 tableplus
-teams-for-linux
 telegram-desktop-bin
 thorium-browser-bin
 timeit
@@ -57,7 +53,6 @@ vkpost
 vlc-pause-click-plugin
 wayscriber
 wlrctl
-xpadneo-dkms
 xwayland-satellite-git
 yt-transcriber
 zsh-theme-powerlevel10k-bin-git
