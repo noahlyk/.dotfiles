@@ -9,6 +9,7 @@ cups.socket
 docker.service
 earlyoom.service
 fstrim.timer
+fwupd-refresh.timer
 getty@.service
 greetd.service
 irqbalance.service
@@ -19,6 +20,7 @@ NetworkManager-wait-online.service
 nginx.service
 nvidia-persistenced.service
 nvidia-powerd.service
+paccache.timer
 postgresql.service
 qbittorrent-vpn-netns.service
 qbittorrent-vpn.service
@@ -31,5 +33,4 @@ systemd-resolved.service
 systemd-resolved-varlink.socket
 systemd-timesyncd.service
 systemd-userdbd.socket
-waydroid-container.service
 wol.service
