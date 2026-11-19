@@ -25,7 +25,8 @@ FSR_SHARPNESS="" # new: --fsr option
 FIXED_RES=1
 SCOPE_SENS=""   # gamescope --mouse-sensitivity multiplier (match niri accel-speed)
 USE_STEAM=0 # new: --steam option (preserve Steam overlay)
-USE_NTSYNC=0 # new: --ntsync option
+USE_NTSYNC=0 # --ntsync / --no-ntsync; defaults on when the kernel provides /dev/ntsync (see below)
+[[ -e /dev/ntsync ]] && USE_NTSYNC=1
 USE_DLSS=0 # new: --dlss option
 USE_HDR=0 # new: --hdr option
 USE_CROSSHAIR=0 # new: --crosshair option
@@ -143,6 +144,10 @@ while [[ $# -gt 0 ]]; do
           export SDL_VIDEO_DRIVER=wayland
           PRECONFIG_ARGS=(-novid -nojoy -high -fullscreen -allow_third_party_software -ct allow -sdlaudiodriver pipewire)
           ;;
+        deadlock)
+          HUD_MODE="default"
+          USE_CROSSHAIR=1
+          ;;
         smite2)
           HUD_MODE="default"
           ;;
@@ -208,6 +213,7 @@ while [[ $# -gt 0 ]]; do
     --sens=*) SCOPE_SENS="${1#--sens=}" ;;
     --steam) USE_STEAM=1 ;;
     --ntsync) USE_NTSYNC=1 ;;
+    --no-ntsync) USE_NTSYNC=0 ;;
     --dlss) USE_DLSS=1 ;;
     --hdr) USE_HDR=1 ;;
     --dry) DRY_RUN=1 ;;
