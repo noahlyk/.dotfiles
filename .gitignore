@@ -74,3 +74,6 @@ __pycache__/
 # keymux generated solver binary; DMS back-compat symlink
 .config/keymux/steno/lyk/05-lyk-solver.bin
 .config/DankMaterialShell
+
+# Machine-local generated ids
+.local/share/fonts/claude-glyph/.uuid

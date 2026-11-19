@@ -246,7 +246,7 @@ binds {
     XF86MonBrightnessUp allow-when-locked=true { spawn "dms" "ipc" "call" "brightness" "increment" "5" ""; }
     XF86MonBrightnessDown allow-when-locked=true { spawn "dms" "ipc" "call" "brightness" "decrement" "5" ""; }
 
-    Mod+Q repeat=false hotkey-overlay-title="Close Window" { close-window; }
+    Mod+X repeat=false hotkey-overlay-title="Close Window" { close-window; }
     Mod+F hotkey-overlay-title="Fullscreen" { fullscreen-window; }
     Mod+Shift+F hotkey-overlay-title="Windowed Fullscreen" { toggle-windowed-fullscreen; }
     Mod+T hotkey-overlay-title="Toggle Floating" { toggle-window-floating; }
