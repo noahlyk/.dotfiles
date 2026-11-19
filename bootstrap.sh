@@ -106,6 +106,10 @@ stow -R .
 # a stow-made symlink to Scripts/.
 mkdir -p "$HOME/.local/bin"
 ln -sfn "$HOME/Scripts/games/gamelaunch" "$HOME/.local/bin/gamelaunch"
+# Steam's launch options run through sh with a PATH that can lack ~/.local/bin
+# (Steam started by autostart/session, not a login shell: "gamelaunch: command not
+# found" and the game exits instantly), so also expose it on the system PATH.
+sudo ln -sfn "$HOME/Scripts/games/gamelaunch" /usr/local/bin/gamelaunch
 
 DOTFILES_SYSTEMD="$(pwd)/.config/systemd"
 
