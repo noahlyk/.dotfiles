@@ -23,6 +23,7 @@ USE_EFFECTS=0    # new: --effects option (sharpness + contrast)
 USE_EFFECTS_2=0  # new: --effects2 option (contrast heavy for saturated games)
 FSR_SHARPNESS="" # new: --fsr option
 FIXED_RES=1
+SCOPE_SENS=""   # gamescope --mouse-sensitivity multiplier (match niri accel-speed)
 USE_STEAM=0 # new: --steam option (preserve Steam overlay)
 USE_NTSYNC=0 # new: --ntsync option
 USE_DLSS=0 # new: --dlss option
@@ -78,21 +79,42 @@ while [[ $# -gt 0 ]]; do
           USE_CROSSHAIR=1
           ;;
         sober)
+          # XWayland inside nested gamescope with --force-grab-cursor: Roblox
+          # never got a pointer lock on native Wayland or plain XWayland, so
+          # gamescope forces the grab. Cursor stays visible for menus; no
+          # immediate flips (tearing when nested), no --rt (no CAP_SYS_NICE).
+          # HUD via gamescope --mangoapp, never the layer too.
           FLATPAK_APP_ID="org.vinegarhq.Sober"
-          # Native Wayland, no gamescope: X11-in-gamescope-in-niri gave tearing
-          # and broken first-person mouse (pointer lock). Native Wayland uses
-          # real pointer constraints and presents straight to niri (vsynced).
-          # If chat typing fails here, use the sober-x11 preset instead.
-          USE_SCOPE=0
-          FLATPAK_X11=0
-          HUD_MODE="default"   # MangoHud Vulkan layer (plain mode only)
+          USE_SCOPE=1
+          FLATPAK_X11=1
+          FORCE_GRAB=1
+          HIDE_CURSOR=0
+          # gamescope's own --adaptive-sync + immediate flips gave multi-second
+          # freezes whenever the mouse moved (nested gamescope in niri), so both
+          # stay off. Display VRR still works: niri's window rule in
+          # custom-overrides.kdl turns it on for this (app-id-less) window.
+          USE_VRR=0
+          USE_IMMEDIATE_FLIPS=0
+          USE_RT=0
+          HUD_MODE="default"
+          # No FPS cap (user preference). Nested refresh follows the display
+          # (auto-detected from niri). Cap per launch if wanted:
+          # SOBER_FPS_CAP=N --refresh-rate=N. Roblox itself hard-caps near 240.
+          # NOTE: the mouse must poll at 1kHz or less (8kHz floods nested
+          # gamescope with motion events and makes it lag on mouse movement).
+          export SOBER_FPS_CAP="${SOBER_FPS_CAP:-9999}"
+          # niri applies flat accel-speed 0.6 (~1.6x) to the desktop pointer but
+          # gamescope's grabbed pointer gets raw motion, so menus felt slower.
+          # Match it; tweak per launch with --sens=N or SCOPE_SENS=N.
+          SCOPE_SENS="${SCOPE_SENS:-1.6}"
           SOBER_FPS_PATCH=1
-          SOBER_COPY_MANGOHUD=1
           USE_CROSSHAIR=1      # becomes the overlay window for flatpak targets (below)
           # Roblox's render thread is single-core bound and 5900X CCDs are
-          # CPUs 0-5 / 6-11 (SMT off): keep Sober on CCD1, away from CPU 0
-          # (IRQs/desktop) so its thread never hops across the Infinity Fabric.
-          PIN_CPUS="${PIN_CPUS:-6-11}"
+          # CPUs 0-5 / 6-11 (SMT off). Keep Sober on one CCD so its thread never
+          # hops across the Infinity Fabric, and use CCD0: amd_pstate prefcore
+          # ranks it higher (cpu0-5 = 196-216 vs cpu6-11 = 166-191), and 0-5 felt
+          # smoother than 6-11 in testing. Override: PIN_CPUS=6-11.
+          PIN_CPUS="${PIN_CPUS:-0-5}"
           ;;
         sober-x11)
           # Fallback: Sober on XWayland inside nested gamescope. Keep the cursor
@@ -183,6 +205,7 @@ while [[ $# -gt 0 ]]; do
     --effects2) USE_EFFECTS_2=1 ;;
     --fsr) FSR_SHARPNESS="$2"; shift ;;
     --no-fixed-res) FIXED_RES=0 ;;
+    --sens=*) SCOPE_SENS="${1#--sens=}" ;;
     --steam) USE_STEAM=1 ;;
     --ntsync) USE_NTSYNC=1 ;;
     --dlss) USE_DLSS=1 ;;
@@ -248,9 +271,26 @@ fi
 # default stretch scaling when using gamescope
 [[ "$USE_SCOPE" -eq 1 && -z "$SCALE_MODE" ]] && SCALE_MODE="stretch"
 
+# Output the game opens on. niri's window rules (custom-overrides.kdl) send games
+# to workspace mon1-1 on DP-1 (the high-refresh monitor), so read DP-1's mode
+# rather than whichever output happens to be focused at launch (that can be a
+# 60Hz monitor, which gave gamescope -r 60). Override: GAME_OUTPUT=<name>.
+GAME_OUTPUT="${GAME_OUTPUT:-DP-1}"
+game_output_mode() {
+  niri msg outputs 2>/dev/null \
+    | awk -v o="($GAME_OUTPUT)" '/^Output /{p = index($0, o) > 0} p && /Current mode:/{print; exit}'
+  return 0
+}
+game_mode_line() {
+  local m
+  m="$(game_output_mode)"
+  [[ -n "$m" ]] || m="$(niri msg focused-output 2>/dev/null | grep 'Current mode:' || true)"
+  printf '%s\n' "$m"
+}
+
 # output resolution auto-detect from niri
 if [[ -z "$W" || -z "$H" ]]; then
-  if out="$(niri msg focused-output 2>/dev/null | grep 'Current mode:' || true)"; then
+  if out="$(game_mode_line)"; then
     read -r W H <<<"$(sed -E 's/.* ([0-9]+)x([0-9]+).*/\1 \2/' <<<"$out")"
   fi
 fi
@@ -263,7 +303,7 @@ fi
 
 # refresh rate: explicit or auto-detect from niri
 if [[ -z "$REFRESH_RATE" ]]; then
-  if out="$(niri msg focused-output 2>/dev/null | grep 'Current mode:' || true)"; then
+  if out="$(game_mode_line)"; then
     REFRESH_RATE="$(sed -E 's/.* @ ([0-9.]+) Hz.*/\1/' <<<"$out")"
   fi
 fi
@@ -324,6 +364,10 @@ if [[ -n "$FLATPAK_APP_ID" && "$USE_CROSSHAIR" -eq 1 ]]; then
   USE_CROSSHAIR=0
   CROSSHAIR_OVERLAY=1
 fi
+# The overlay follows focus by niri app-id. Under gamescope the game window is
+# reported as app-id "gamescope" (not the flatpak id), so match that instead.
+CROSSHAIR_APP="$FLATPAK_APP_ID"
+[[ "$USE_SCOPE" -eq 1 ]] && CROSSHAIR_APP="gamescope"
 
 # Crosshair overlay config (krosshair Vulkan layer)
 if [[ "$USE_CROSSHAIR" -eq 1 ]]; then
@@ -409,7 +453,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "ENABLE_VKPOST=1"
   fi
   [[ "$USE_CROSSHAIR" -eq 1 ]] && echo "KROSSHAIR=1"
-  [[ "$CROSSHAIR_OVERLAY" -eq 1 ]] && echo "crosshair-overlay --app $FLATPAK_APP_ID ${CROSSHAIR_ARGS:-}"
+  [[ "$CROSSHAIR_OVERLAY" -eq 1 ]] && echo "crosshair-overlay --app $CROSSHAIR_APP ${CROSSHAIR_ARGS:-}"
   if [[ "$USE_AUDIO" -eq 1 ]]; then
     echo "PIPEWIRE_LATENCY=16/48000"
     echo "PULSE_LATENCY_MSEC=1"
@@ -436,6 +480,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     [[ -n "$REFRESH_RATE" ]] && printf -- "-r %s " "$REFRESH_RATE"
     [[ $USE_IMMEDIATE_FLIPS -eq 1 ]] && printf -- "--immediate-flips "
     [[ $USE_RT -eq 1 ]] && printf -- "--rt "
+    [[ -n "$SCOPE_SENS" ]] && printf -- "-s %s " "$SCOPE_SENS"
     [[ "$HUD_MODE" != "no_display" ]] && printf -- "--mangoapp "
     printf -- "-- "
     printf '%q ' "${GAME_ARGS[@]}"
@@ -455,9 +500,9 @@ fi
 
 # Crosshair overlay: detached, follows the app's focus, exits when the app
 # closes (or never opens). Skip if one is already running for this app.
-if [[ "$CROSSHAIR_OVERLAY" -eq 1 ]] && ! pgrep -f "crosshair-overlay --app $FLATPAK_APP_ID" >/dev/null; then
+if [[ "$CROSSHAIR_OVERLAY" -eq 1 ]] && ! pgrep -f "crosshair-overlay --app $CROSSHAIR_APP" >/dev/null; then
   # shellcheck disable=SC2086
-  setsid -f "$HOME/Scripts/games/crosshair-overlay" --app "$FLATPAK_APP_ID" ${CROSSHAIR_ARGS:-} >/dev/null 2>&1 || true
+  setsid -f "$HOME/Scripts/games/crosshair-overlay" --app "$CROSSHAIR_APP" ${CROSSHAIR_ARGS:-} >/dev/null 2>&1 || true
 fi
 
 # Pin IRQs to CPU 0, game to CPUs 1-11
@@ -534,6 +579,7 @@ fi
 [[ -n "$REFRESH_RATE" ]] && CMD+=(-r "$REFRESH_RATE")
 [[ "$USE_IMMEDIATE_FLIPS" -eq 1 ]] && CMD+=(--immediate-flips)
 [[ "$USE_RT" -eq 1 ]] && CMD+=(--rt)
+[[ -n "$SCOPE_SENS" ]] && CMD+=(-s "$SCOPE_SENS")
 [[ "$HUD_MODE" != "no_display" ]] && CMD+=(--mangoapp)
 
 # Crosshair overlay uses KROSSHAIR Vulkan layer env vars set above
