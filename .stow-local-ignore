@@ -1,0 +1,23 @@
+# Stow's built-in defaults (a local file replaces them, so they are repeated here)
+RCS
+.+,v
+CVS
+\.\#.+
+\.cvsignore
+\.svn
+_darcs
+\.hg
+\.git
+\.gitignore
+\.gitmodules
+.+~
+\#.*\#
+README.*
+LICENSE.*
+COPYING
+
+# ~/.dotfiles is also a Claude Code project: its own CLAUDE.md, local settings and
+# worktrees must not be linked into the user-level ~/.claude
+^/\.claude/CLAUDE\.md
+^/\.claude/settings\.local\.json
+^/\.claude/worktrees
