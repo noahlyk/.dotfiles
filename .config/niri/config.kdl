@@ -172,6 +172,9 @@ animations {
   }
 }
 
+// Swallow unbound Super chords; must precede every real binds block (later wins).
+include "dead-mod-binds.kdl"
+
 binds {
     Mod+O repeat=false hotkey-overlay-title="Overview" { toggle-overview; }
     Mod+Tab repeat=false hotkey-overlay-title="Overview" { toggle-overview; }
