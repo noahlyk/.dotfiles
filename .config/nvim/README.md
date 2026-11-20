@@ -134,9 +134,6 @@ NVIM_APPNAME=noahlyk/.dotfiles/.config/nvim nvim
 ### terminal-integration
 
 + [samjwill/nvim-unception](https://dotfyle.com/plugins/samjwill/nvim-unception)
-### tmux
-
-+ [numToStr/Navigator.nvim](https://dotfyle.com/plugins/numToStr/Navigator.nvim)
 ### utility
 
 + [mistricky/codesnap.nvim](https://dotfyle.com/plugins/mistricky/codesnap.nvim)
