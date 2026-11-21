@@ -87,6 +87,9 @@
       }
     ]
   },
+  "worktree": {
+    "bgIsolation": "none"
+  },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "better-compact@agent-tools": true
@@ -117,8 +120,5 @@
   "autoCompactEnabled": false,
   "inputNeededNotifEnabled": false,
   "agentPushNotifEnabled": false,
-  "voiceEnabled": true,
-  "worktree": {
-    "bgIsolation": "none"
-  }
+  "voiceEnabled": true
 }
