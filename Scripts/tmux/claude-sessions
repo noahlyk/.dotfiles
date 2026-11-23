@@ -397,6 +397,18 @@ def show_in_viewer(pane_id, name):
     return opened
 
 
+def attach_in_pane(pane_id, entry):
+    """One atomic step: replace the viewer process with `claude attach` (its Left key returns to the list).
+    Refuses when the viewer's prompt holds a draft or a find box is open, so nothing typed is lost."""
+    if pane_title_of(pane_id) == VIEWER_TITLE:
+        screen = tmux("capture-pane", "-p", "-t", pane_id)
+        if "describe a task for a new session" not in screen or "\u2315" in screen:
+            return False
+    sid = entry.get("short") or entry["sid"][:8]
+    tmux("respawn-pane", "-k", "-t", pane_id, f"zsh -ic 'claude attach {sid}'")
+    return True
+
+
 def viewer_exists(entry):
     """True when this background session's project already has a tmux session with a window 3."""
     cwd = entry["cwd"] if os.path.isdir(entry["cwd"]) else HOME
@@ -423,7 +435,7 @@ def open_entry(entry, client, store=None):
     switch = ["switch-client"] + (["-c", client] if client and client != "none" else []) + ["-t", f"={session}:3"]
     tmux(*switch)
     if pane_id:
-        show_in_viewer(pane_id, entry["name"])
+        attach_in_pane(pane_id, entry) or show_in_viewer(pane_id, entry["name"])
 
 
 def cmd_next(current, client):
