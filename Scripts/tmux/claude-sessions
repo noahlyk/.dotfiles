@@ -405,6 +405,7 @@ def attach_in_pane(pane_id, entry):
         if "describe a task for a new session" not in screen or "\u2315" in screen:
             return False
     sid = entry.get("short") or entry["sid"][:8]
+    tmux("set", "-pu", "-t", pane_id, "@claude_title_auto", ";", "set", "-pu", "-t", pane_id, "@claude_title_override")  # new session, new name
     tmux("respawn-pane", "-k", "-t", pane_id, f"zsh -ic 'claude attach {sid}'")
     return True
 
